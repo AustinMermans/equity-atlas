@@ -184,6 +184,7 @@ function detail(r) {
    const titles={
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
+     'derived:FiledBalanceSheetLiabilities':'Filed balance-sheet liability lines',
      'derived:ReconciledPretaxScope':'Filed pretax income and note adjustments',
      'disclosed:ReconciledAnnualNoteLine':'Filed note line',
      'disclosed:ReconciledBusinessScopes':'Filed business-scope components',
@@ -216,6 +217,7 @@ function detail(r) {
  const sources=factRows(st);
  const balance=r.balance_check;
  const reconciliation=balance&&(balance.temporary_equity_fields.length||!balance.reconciled||st.facts.hybrid_equity)?'<p>Balance sheet residual after disclosed temporary equity · '+esc(st.currency)+' '+reportedAmount.format(balance.unexplained_residual)+(balance.unexplained_equity_attribution!==undefined?' · Equity attribution residual '+reportedAmount.format(balance.unexplained_equity_attribution):'')+'</p>':'';
+ const balanceRounding=balance?.rounding_residual?'<p>Balance-sheet rounding difference · '+esc(st.currency)+' '+reportedAmount.format(balance.rounding_residual)+'</p>':'';
  const history=r.history||[], basis=st?.sales_basis??null;
  const comparable=history.slice(history.findLastIndex(h=>(h.sales_basis??null)!==basis)+1);
  const margins=comparable.flatMap(h=>h.facts.sales?.value>0&&Number.isFinite(h.facts.ebit?.value)?[[h.end.slice(0,4),h.facts.ebit.value/h.facts.sales.value]]:[]);
@@ -228,7 +230,7 @@ function detail(r) {
    marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+investmentGap+reconciliation+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+investmentGap+reconciliation+balanceRounding+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
    (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();

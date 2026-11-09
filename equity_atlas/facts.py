@@ -30,7 +30,7 @@ TAGS = {
     "minority": "NonredeemableNoncontrollingInterest MinorityInterest NoncontrollingInterests",
     "temporary_equity_total": "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
     "temporary_equity_parent": "TemporaryEquityCarryingAmountAttributableToParent",
-    "redeemable_nci": "RedeemableNoncontrollingInterestEquityCarryingAmount",
+    "redeemable_nci": "RedeemableNoncontrollingInterestEquityCarryingAmount RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
     "redeemable_nci_redemption": "RedeemableNoncontrollingInterestEquityRedemptionValue",
     "cash": "CashAndCashEquivalentsAtCarryingValue CashAndCashEquivalents",
     "cash_due_from_banks": "CashAndDueFromBanks",
@@ -191,7 +191,7 @@ def temporary_equity_fields(values):
 
 
 def balance_check(statement):
-    """Reconcile reported claims at carrying value without deriving missing claims."""
+    """Reconcile claims at carrying value, preserving any verified rounding difference."""
     facts = statement["facts"]
     base = ("assets", "liabilities", "total_equity")
     if not set(base) <= facts.keys():
@@ -204,6 +204,8 @@ def balance_check(statement):
         "permanent_equity_residual": residual, "temporary_equity_fields": temporary,
         "unexplained_residual": net, "reconciled": abs(net) <= 1,
     }
+    if net and net == facts["liabilities"].get("balance_rounding_residual"):
+        result.update(rounding_residual=net, unexplained_residual=0, reconciled=True)
     if {"book", "minority"} <= v.keys():
         result["unexplained_equity_attribution"] = v["total_equity"] - v["book"] - v["minority"] - v.get("hybrid_equity",0)
     return result

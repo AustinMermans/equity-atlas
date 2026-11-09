@@ -160,8 +160,8 @@ def annual_table(cache, cik, report, statement, kind, title, pinned_filename=Non
     url = sources[0] if len(sources) == 1 else None
     digest = checksums.get(url, "")
     scale = table["money_scale"]
-    year = "12 months to " + statement["end"]
-    if (" ".join(table["title"].casefold().split()) != " ".join(title.casefold().split()) or
+    year = statement["end"] if kind == "balance_sheet" else "12 months to " + statement["end"]
+    if ((title is not None and " ".join(table["title"].casefold().split()) != " ".join(title.casefold().split())) or
             not table_belongs_to_filing(url, report, pinned_filename) or
             table["currency"] != statement["currency"] or table["columns"].count(year) != 1 or
             scale not in {1, 1_000, 1_000_000, 1_000_000_000} or

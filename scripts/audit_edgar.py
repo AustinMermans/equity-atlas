@@ -352,6 +352,35 @@ for symbol in ("CM", "UBS", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "
 for symbol in ("BMO", "CM", "TD"):
     if "capex" in rows[symbol]["statement"]["facts"]:
         raise SystemExit(f"{symbol}: net purchases must remain separate from gross cash investment")
+# FY2025/26 face-statement liability totals or sums of its disclosed lines, in millions.
+LIABILITY_BALANCES = {
+    "ABBV": 137188, "ABT": 33942, "ACN": 40340.676, "ADI": 14176.957, "AMD": 13927,
+    "AMGN": 81928, "AMZN": 406977, "BUD": 121071, "DHR": 30923, "DIS": 82902,
+    "DUK": 142717, "ETN": 21782, "GD": 31627, "GILD": 36405, "HCA": 63491,
+    "INTC": 85069, "KO": 70541, "LLY": 85941, "MAR": 31311, "MCD": 61307,
+    "MCK": 83157, "MRK": 84204, "ORCL": 218703, "SCCO": 10276.5, "SHOP": 1716,
+    "SNY": 55095, "T": 291706, "TJX": 25577, "TMO": 56807, "TMUS": 160034,
+    "TTE": 173532, "VLO": 31383, "VZ": 298517, "WMT": 178488,
+}
+for symbol, amount in LIABILITY_BALANCES.items():
+    row = rows[symbol]
+    fact = row["statement"]["facts"]["liabilities"]
+    currency = "EUR" if symbol == "SNY" else "USD"
+    residual = {"BUD": 1_000_000, "MCD": -1_000_000, "TMO": -1_000_000}.get(symbol, 0)
+    if (fact["unit"], fact["value"], fact["balance_rounding_residual"]) != (currency, round(amount * 1_000_000), residual):
+        raise SystemExit(f"{symbol}: recovered liability balance or rounding residual changed")
+    checked += 1
+for symbol, amount in {"ACN": 532_762_000, "MCK": 943_000_000, "T": 2_001_000_000,
+                       "TMO": 122_000_000, "WMT": 293_000_000}.items():
+    row = rows[symbol]
+    if row["statement"]["facts"]["redeemable_nci"]["value"] != amount or row["balance_check"]["unexplained_residual"]:
+        raise SystemExit(f"{symbol}: redeemable noncontrolling interest changed or the claims do not reconcile")
+    checked += 1
+marriott = rows["MAR"]["statement"]["facts"]["liabilities"]["components"]
+if {part["member"]: part["value"] for part in marriott if "member" in part} != {
+        "Liability for guest loyalty program": 4_495_000_000, "Deferred revenue": 1_200_000_000}:
+    raise SystemExit("Marriott noncurrent contract-liability dimensions changed")
+checked += 2
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -366,5 +395,6 @@ for key, millions in {"ebit_adjusted": 9055, "sales_adjusted": 42322, "costs_adj
         raise SystemExit(f"GE adjusted reconciliation: incorrect {key}")
     checked += 1
 issuers.update(ANNUAL_NOTES)
+issuers.update(LIABILITY_BALANCES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

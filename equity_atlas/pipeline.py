@@ -10,6 +10,7 @@ import re
 import time
 
 from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
+from .balance_sheet import TAG as BALANCE_LIABILITIES_TAG, enrich_balance, supported as balance_supported
 from .capex import CAPEX_TAG, NET_PURCHASES, enrich_capex, supported as capex_supported
 from .deere import enrich_business_scopes, supported as business_scopes_supported
 from .depreciation import (
@@ -215,6 +216,11 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1]=add_claims(blob,receipt,selected_filing,cik,selected)
                     except (OSError,ValueError,KeyError,TypeError) as exc:
                         issues.append(f"Annual equity claims for {selected['end']}: {exc}")
+                if selected_filing and balance_supported(selected_filing, history[-1]):
+                    try:
+                        history[-1] = enrich_balance(cache, obj, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual balance sheet for {selected['end']}: {exc}")
                 if selected_filing and capex_supported(cik, selected_filing):
                     try:
                         history[-1]=enrich_capex(cache,obj,meta,cik,selected_filing,history[-1])
@@ -421,6 +427,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
         "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
+        "annual_liabilities_available":sum("liabilities" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
+        "annual_liabilities_recovered":sum((r["statement"] or {}).get("facts", {}).get("liabilities", {}).get("tag")
+                                           == BALANCE_LIABILITIES_TAG for r in sec_rows),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
         "annual_operating_profit_reviewed_gaps":sum(bool((r["statement"] or {}).get("operating_profit_gap")) for r in sec_rows),
         "annual_depreciation_profiled":sum(any(f["tag"] in {DEPRECIATION_TAG,WORKBOOK_DA_TAG}

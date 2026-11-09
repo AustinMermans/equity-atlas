@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
+from equity_atlas.balance_sheet import EQUITY_TAG as BALANCE_EQUITY_TAG, TAG as BALANCE_LIABILITIES_TAG, balance_facts
 from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 reports_only_net_purchases, required_additional_fields, valid_capex_components)
@@ -48,6 +49,8 @@ sec_count=0
 interim_expected=0
 quarters=0
 capex_profiles=0
+liabilities_available=0
+liabilities_recovered=0
 note_profiles=0
 business_profiles=0
 income_profiles=0
@@ -172,6 +175,15 @@ def verify_period(period, row):
     annual_report = period.get("report") if period is row["statement"] else None
     selected_cik = annual_cik(row, annual_report) if annual_report else None
     income_profile = income_profile_for(selected_cik, annual_report) if annual_report else None
+    balance_evidence = period.get("annual_balance_sheet")
+    balance = {}
+    if balance_evidence:
+        try:
+            balance = balance_facts(annual_report, period, balance_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit("Unverified annual balance-sheet liability reconciliation") from exc
+        if any(period["facts"].get(key) != value for key, value in balance.items()):
+            raise SystemExit("Filed liability or equity amount differs from the balance-sheet reconciliation")
     evidence = period.get("annual_earnings_exhibit")
     disclosed = {}
     if evidence:
@@ -260,6 +272,8 @@ def verify_period(period, row):
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == BUSINESS_TAG:
             official = scoped.get(key) == fact
+        if fact["tag"] in {BALANCE_LIABILITIES_TAG, BALANCE_EQUITY_TAG}:
+            official = balance.get(key) == fact
         if fact["tag"] == PRETAX_BRIDGE_TAG:
             official = pretax_scope.get(key) == fact
         if fact["tag"] == NOTE_LINE_TAG:
@@ -400,6 +414,10 @@ for row in rows:
             if period.get("depreciation_gap") != expected_gap:
                 raise SystemExit(f"Unverified annual depreciation and amortization gap for {row['symbol']}")
             depreciation_gaps += bool(expected_gap)
+        if row["id"].startswith("sec:"):
+            liabilities = row["statement"]["facts"].get("liabilities")
+            liabilities_available += bool(liabilities)
+            liabilities_recovered += bool(liabilities and liabilities["tag"] == BALANCE_LIABILITIES_TAG)
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
@@ -458,6 +476,10 @@ if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["a
     raise SystemExit("Annual filing note coverage does not match published facts")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
+if "annual_liabilities_available" in snap["stats"] and (
+        liabilities_available != sec_count or liabilities_available != snap["stats"]["annual_liabilities_available"]
+        or liabilities_recovered != snap["stats"].get("annual_liabilities_recovered")):
+    raise SystemExit(f"Annual total-liability coverage incomplete: {liabilities_available}/{sec_count}")
 if "annual_income_profiled" in snap["stats"] and (income_profiles, operating_gaps) != (
         snap["stats"]["annual_income_profiled"], snap["stats"]["annual_operating_profit_reviewed_gaps"]):
     raise SystemExit("Annual income statement coverage mismatch")
