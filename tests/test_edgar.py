@@ -1,7 +1,7 @@
 from datetime import date
 import unittest
 
-from equity_atlas.edgar import annual_from_instance
+from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
 from equity_atlas.facts import from_sec
 from equity_atlas.issuer_20f import column, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
@@ -76,6 +76,49 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(result["facts"]["sales"]["value"],1000000)
         self.assertEqual(result["facts"]["sales"]["context_id"],"year")
         self.assertEqual(result["facts"]["net"]["value"],-130000)
+
+    def test_archive_interim_separates_quarter_and_year_to_date(self):
+        report = {"end": "2026-09-30", "filed": "2026-10-29", "form": "10-Q",
+                  "url": "https://www.sec.gov/Archives/edgar/test.htm",
+                  "accession": "0000000001-26-000001"}
+        def context(key, start, end):
+            return (f'<x:context id="{key}"><x:entity><x:identifier scheme="http://www.sec.gov/CIK">'
+                    f'1</x:identifier></x:entity><x:period><x:startDate>{start}</x:startDate>'
+                    f'<x:endDate>{end}</x:endDate></x:period></x:context>')
+
+        header = ('<x:xbrl xmlns:x="http://www.xbrl.org/2003/instance" xmlns:g="http://fasb.org/us-gaap/2026" '
+                  'xmlns:iso="http://www.xbrl.org/2003/iso4217">'
+                  '<x:unit id="USD"><x:measure>iso:USD</x:measure></x:unit>')
+        values = {
+            "quarter": ("2026-07-01", "2026-09-30", 100, 15),
+            "ytd": ("2026-01-01", "2026-09-30", 300, 50),
+            "prior": ("2025-07-01", "2025-09-30", 90, 13),
+        }
+        content = []
+        for key, (start, end, sales, earnings) in values.items():
+            content.append(context(key, start, end))
+            for tag, value in (("Revenues", sales), ("NetIncomeLoss", earnings)):
+                content.append(f'<g:{tag} contextRef="{key}" unitRef="USD">{value}</g:{tag}>')
+        raw = (header + "".join(content) + "</x:xbrl>").encode()
+        actual = periods_from_instance(raw, META, report, 1, ("quarter", "ytd"))
+        self.assertEqual(actual["quarter"][0]["facts"]["sales"]["value"], 100)
+        self.assertEqual(actual["ytd"][0]["facts"]["sales"]["value"], 300)
+        self.assertEqual(actual["ytd"][0]["facts"]["net"]["start"], "2026-01-01")
+        self.assertEqual(actual["quarter"][0]["filing"], report["accession"])
+
+    def test_review_is_bound_to_original_and_every_later_amendment(self):
+        original = "0000002488-26-000018"
+        reviewed = "0000002488-26-000021"
+        future = "0000002488-26-000022"
+        base = {"end": "2025-12-27", "url": "https://www.sec.gov/Archives/edgar/test.htm"}
+        filings = {
+            original: {**base, "accession": original, "filed": "2026-02-04", "form": "10-K"},
+            reviewed: {**base, "accession": reviewed, "filed": "2026-03-01", "form": "10-K/A"},
+        }
+        statement = {"filing": original, "end": base["end"]}
+        self.assertEqual(amendment_reviews(filings, statement, filings[reviewed])[0]["accession"], reviewed)
+        filings[future] = {**filings[reviewed], "accession": future, "filed": "2026-03-02"}
+        self.assertEqual(amendment_reviews(filings, statement, filings[future]), [])
 
     def test_issuer_copy_uses_current_column_after_optional_note(self):
         self.assertEqual(column("Net profit . . . .    ¥(2,500)    ¥ 1,999", "Net profit", 2), -2500)

@@ -10,9 +10,9 @@ import re
 import time
 
 from .catalog import CIKS, LEIS, classify, esef_list, sec_meta
-from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, sec_filing_index
-from .edgar import annual_from_instance, instance_url
-from .issuer_20f import MIRRORS, read_mirror
+from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
+from .edgar import amendment_reviews, annual_from_instance, instance_url, periods_from_instance
+from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
 from .market import load_taiwan
@@ -45,6 +45,38 @@ def universe(blob, count, floor=None):
         raise ValueError(f"requested {count} names but ranking has {len(parsed)} usable rows")
     return parsed
 
+def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, issues):
+    results={}
+    routes={}
+    start=date.fromisoformat(annual["end"])+timedelta(days=1) if annual else None
+    end=date.fromisoformat(interim["end"])
+    # Q1 is also year to date, so its standalone statement is sufficient.
+    kinds=["quarter"]
+    if qualifies("cfo", start, end, "ytd"):
+        kinds.append("ytd")
+    for kind in kinds:
+        periods=from_sec(obj,meta,day,cik,filings,kind)
+        match=next((x for x in periods if x["filing"]==interim["accession"] and x["end"]==interim["end"]),None)
+        if match:
+            results[kind]=match
+            routes[kind]="company_facts"
+    missing=tuple(kind for kind in kinds if kind not in results)
+    if missing:
+        try:
+            raw, receipt=cache.get(instance_url(interim),8760)
+            parsed=periods_from_instance(raw,receipt,interim,cik,missing)
+            for kind in missing:
+                if parsed[kind]:
+                    results[kind]=parsed[kind][-1]
+                    routes[kind]="filing_instance"
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            issues.append(f"SEC interim archive for {interim['end']}: {exc}")
+    for kind in missing:
+        if kind not in results:
+            routes[kind]="unavailable"
+    return {**results,"interim_routes":routes}
+
+
 def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
     choices=[]
     issues=[]
@@ -70,39 +102,43 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
                 interim=latest_filing(filings,INTERIM)
                 audit.update(latest_annual=annual,latest_interim=interim)
                 audit["annual_route"]="company_facts" if history else "unavailable"
-                if annual and (not history or history[-1]["end"] < annual["end"]):
+                statement=history[-1] if history else None
+                same_year=bool(annual and statement and annual["end"]==statement["end"])
+                needs_amendment=bool(same_year and annual["form"].endswith("/A") and
+                                     annual["accession"]!=statement["filing"])
+                reviews=amendment_reviews(filings,statement,annual) if needs_amendment else []
+                if reviews:
+                    audit["amendment_reviews"]=reviews
+                    audit["annual_route"]="company_facts_reviewed_amendment"
+                if annual and (not statement or statement["end"] < annual["end"] or
+                               (needs_amendment and not reviews)):
                     try:
                         raw, instance_meta=cache.get(instance_url(annual),8760)
                         extra=annual_from_instance(raw,instance_meta,annual,cik)
-                        if not extra or extra[-1]["end"] != annual["end"]:
+                        if (not extra or extra[-1]["end"] != annual["end"] or
+                                (needs_amendment and not {"assets","liabilities","book"} <= extra[-1]["facts"].keys())):
                             raise ValueError("No consolidated annual statement for the expected period")
                         history=[x for x in history if x["end"] < extra[-1]["end"]]+extra
                         audit["annual_route"]="filing_instance"
                         annual_receipt=instance_meta
                     except (OSError, ValueError, KeyError, TypeError) as exc:
-                        audit["annual_route"]="latest_filing_gap"
-                        issues.append(f"SEC archive extraction for {annual['end']}: {exc}")
+                        audit["annual_route"]="amendment_pending" if needs_amendment else "latest_filing_gap"
+                        scope="Amended annual statement" if needs_amendment else "Annual statement"
+                        issues.append(f"{scope} for {annual['end']} unavailable from SEC archive: {exc}")
                         mirror=MIRRORS.get((cik,annual["accession"]))
                         if mirror:
                             try:
                                 pdf, mirror_meta=cache.get(mirror[2],8760)
                                 recovered=read_mirror(pdf,mirror_meta,annual,cik)
                                 history=[x for x in history if x["end"] < recovered["end"]]+[recovered]
-                                audit["annual_route"]="issuer_20f"
+                                audit["annual_route"]=recovered["route"]
                                 annual_receipt=mirror_meta
                             except (OSError,ValueError,KeyError,TypeError) as mirror_exc:
-                                issues.append(f"Issuer 20-F extraction for {annual['end']}: {mirror_exc}")
-                if interim and (not history or interim["end"] > history[-1]["end"]):
-                    for kind in ("quarter","ytd"):
-                        periods=from_sec(obj,meta,day,cik,filings,kind)
-                        match=next((x for x in periods if x["filing"] == interim["accession"] and
-                                    x["end"] == interim["end"]),None)
-                        if match:
-                            audit[kind]=match
-                    if not audit.get("quarter") and not audit.get("ytd"):
-                        issues.append(f"SEC interim filed for {interim['end']}; compatible facts unavailable.")
+                                issues.append(f"Public 20-F copy extraction for {annual['end']}: {mirror_exc}")
+                if interim and (not annual or interim["end"] > annual["end"]):
+                    audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual,interim,issues))
             if history:
-                route="Issuer 20-F" if audit.get("annual_route")=="issuer_20f" else "SEC"
+                route=COPY_SOURCES.get(audit.get("annual_route"),"SEC")
                 choices.append((route,history,annual_receipt or meta))
             else:
                 issues.append("SEC: no qualifying annual statement.")
@@ -238,8 +274,14 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "sec_issuers":len(sec_rows), "metadata_verified":len(verified),
         "latest_annual_expected":len(latest),
         "latest_annual_extracted":sum(bool(r["source"]=="SEC" and r["statement"] and
-                                   r["statement"]["end"]==r["edgar"]["latest_annual"]["end"]) for r in latest),
+                                   r["statement"]["end"]==r["edgar"]["latest_annual"]["end"] and
+                                   (r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"] or
+                                    r["edgar"].get("amendment_reviews"))) for r in latest),
+        "latest_annual_reviewed_amendments":sum(bool(r["edgar"].get("amendment_reviews")) for r in latest),
+        "latest_annual_pending_amendments":sum(r["edgar"].get("annual_route")=="amendment_pending" for r in latest),
         "latest_annual_issuer_mirror":sum(bool(r["source"]=="Issuer 20-F" and r["statement"] and
+                                     r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
+        "latest_annual_regulator_mirror":sum(bool(r["source"]=="FCA 20-F" and r["statement"] and
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "interim_available":sum(bool(r["edgar"].get("quarter") or r["edgar"].get("ytd")) for r in sec_rows),
     }

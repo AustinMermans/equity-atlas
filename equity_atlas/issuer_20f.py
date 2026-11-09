@@ -1,4 +1,4 @@
-"""Extract reviewed consolidated tables from issuer-hosted copies of filed 20-Fs."""
+"""Extract reviewed consolidated tables from public copies of filed 20-Fs."""
 from datetime import date, timedelta
 import re
 import subprocess
@@ -7,7 +7,10 @@ from .facts import EPS_FIELDS, STOCK
 
 # Bind each public document and table layout to the matching SEC accession.
 # A later filing requires a reviewed profile, even if an issuer reuses a URL.
+FCA_BHP = "https://data.fca.org.uk/artefacts/NSM/DirectUpload/NI-000150351/NI-000150351.pdf"
+COPY_SOURCES = {"issuer_20f": "Issuer 20-F", "regulator_20f": "FCA 20-F"}
 MIRRORS = {
+    (811809, "0001193125-26-354647"): ("2026-06-30", "USD", FCA_BHP),
     (1119639, "0001292814-26-002168"): (
         "2025-12-31", "USD",
         "https://petrobras.com.br/documents/2677942/17808296/FORM%2B20F%2B2025%2BEN.pdf/"
@@ -52,8 +55,9 @@ def column(table, label, count, occurrence=None):
 
 def read_mirror(blob, receipt, report, cik):
     end, currency, url = MIRRORS[cik, report["accession"]]
+    route = "regulator_20f" if url == FCA_BHP else "issuer_20f"
     if report["end"] != end or report["form"] != "20-F" or receipt["url"] != url:
-        raise ValueError("Issuer copy does not match SEC metadata")
+        raise ValueError("Public copy does not match SEC metadata")
     if not blob.startswith(b"%PDF-") or len(blob) > 32_000_000:
         raise ValueError("Unexpected 20-F document type or size")
     try:
@@ -62,7 +66,7 @@ def read_mirror(blob, receipt, report, cik):
             capture_output=True, check=True, timeout=25,
         ).stdout
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise ValueError("Cannot extract text from issuer 20-F") from exc
+        raise ValueError("Cannot extract text from public 20-F copy") from exc
     pages = output.decode("utf-8").split("\f")
     day = date.fromisoformat(end)
     start = str(day.replace(year=day.year - 1) + timedelta(days=1))
@@ -81,11 +85,42 @@ def read_mirror(blob, receipt, report, cik):
             "unit": f"{currency}/shares" if key in EPS_FIELDS else currency,
             "start": None if key in STOCK else start,
             "filed": report["filed"], "form": report["form"],
-            "tag": f"issuer20f:{concept or key}", "source": url, "url": report["url"],
+            "tag": f"{route}:{concept or key}", "source": url, "url": report["url"],
             "sha256": receipt["sha256"], "locator": locator,
         }
 
-    if cik == 1119639:
+    if cik == 811809:
+        bs = statement_page(pages, "1.3   Consolidated Balance Sheet as at 30 June 2026", "F-3",
+                            ("2026", "2025", "US$M", "BHP shareholders"))
+        income = statement_page(pages, "1.1   Consolidated Income Statement for the year ended 30 June 2026", "F-1",
+                                ("2026", "2025", "2024", "US$M", "BHP shareholders"))
+        cf = statement_page(pages, "1.4   Consolidated Cash Flow Statement for the year ended 30 June 2026", "F-4",
+                            ("2026", "2025", "2024", "US$M", "Net operating cash flows"))
+        read(bs, "F-3", 2, {
+            "assets": "Total assets", "liabilities": "Total liabilities",
+            "book": "Total equity attributable to BHP shareholders", "total_equity": "Total equity",
+            "minority": "Non-controlling interests", "cash": "Cash and cash equivalents",
+        })
+        for key, label in (("inventory", "Inventories"), ("ar", "Trade and other receivables"),
+                           ("ap", "Trade and other payables"), ("debt_current_total", "Interest bearing liabilities")):
+            save(key, column(bs, label, 2, 0), f"F-3 · Current · {label}")
+        save("debt_noncurrent", column(bs, "Interest bearing liabilities", 2, 1),
+             "F-3 · Non-current interest bearing liabilities")
+        read(income, "F-1", 3, {
+            "sales": "Revenue", "ebit": "Profit from operations", "pretax": "Profit before taxation",
+            "tax": "Total taxation expense", "net_consolidated": "Profit after taxation",
+            "net_parent": "Attributable to BHP shareholders",
+        }, outflows={"tax"})
+        for key, label in (("eps_basic", "Basic"), ("eps_diluted", "Diluted")):
+            label += " earnings per ordinary share (cents)"
+            save(key, column(income, label, 3) / 100, f"F-1 · {label}, converted to US dollars")
+        read(cf, "F-4", 3, {
+            "cfo": "Net operating cash flows", "capex": "Purchases of property, plant and equipment",
+            "da": "Depreciation and amortisation expense", "div": "Dividends paid",
+        }, outflows={"capex", "div"})
+        facts["div"]["tag"] = f"{route}:PaymentsOfOrdinaryShareDividends"
+        facts["net"] = facts["net_parent"].copy()
+    elif cik == 1119639:
         basis = "Expressed in millions of US Dollars"
         bs = statement_page(pages, "Consolidated Statements of Financial Position", "F-3",
                             ("PETROBRAS", basis, "12.31.2025", "12.31.2024"))
@@ -111,7 +146,7 @@ def read_mirror(blob, receipt, report, cik):
             "pretax": "Net income before income taxes", "tax": "Income taxes",
             "eps_basic": "Basic and diluted earnings per common and preferred share - in U.S. dollars",
         }, outflows={"tax"})
-        facts["eps_diluted"] = {**facts["eps_basic"], "tag": "issuer20f:eps_diluted"}
+        facts["eps_diluted"] = {**facts["eps_basic"], "tag": f"{route}:eps_diluted"}
         read(cf, "F-6", 3, {
             "cfo": "Net cash provided by operating activities",
             "capex": "Acquisition of PP&E and intangible assets",
@@ -156,7 +191,7 @@ def read_mirror(blob, receipt, report, cik):
             "da": "Depreciation and amortization",
         }, outflows={"div"})
         # The cash-flow statement's ending cash is a point-in-time balance.
-        facts["div"]["tag"] = "issuer20f:PaymentsOfOrdinaryShareDividends"
+        facts["div"]["tag"] = f"{route}:PaymentsOfOrdinaryShareDividends"
         facts["net"] = facts["net_common"].copy()
 
     values = {k: v["value"] for k, v in facts.items()}
@@ -166,7 +201,7 @@ def read_mirror(blob, receipt, report, cik):
         values["pretax"] - values["tax"] - values["net_consolidated"],
     ]
     if any(abs(diff) > 1_000_000 for diff in checks) or min(values["assets"], values["cash"]) <= 0:
-        raise ValueError("Issuer 20-F statement totals do not reconcile")
+        raise ValueError("20-F statement totals do not reconcile")
     return {"end": end, "start": start, "currency": currency, "filing": report["accession"],
             "period_kind": "annual", "facts": facts, "conflicts": [],
-            "accounting": "IFRS", "report": report, "route": "issuer_20f"}
+            "accounting": "IFRS", "report": report, "route": route}

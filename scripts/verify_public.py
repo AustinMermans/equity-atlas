@@ -6,7 +6,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from equity_atlas.issuer_20f import MIRRORS
+from equity_atlas.edgar import REVIEWED_AMENDMENTS
+from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -31,23 +32,25 @@ if open_market:
 
 def verify_period(period, row):
     mirror = None
-    if period.get("route") == "issuer_20f":
+    route = period.get("route")
+    if route in COPY_SOURCES:
         report = row["edgar"]["latest_annual"]
         cik = int(row["id"].removeprefix("sec:"))
         mirror = MIRRORS.get((cik, report["accession"]))
         if (not mirror or period["filing"] != report["accession"] or
                 (period["end"], period["currency"]) != mirror[:2] or period["report"] != report or
-                row["source"] != "Issuer 20-F" or row["edgar"]["annual_route"] != "issuer_20f"):
-            raise SystemExit("Issuer mirror does not match the expected SEC filing")
-    elif row["source"] == "Issuer 20-F" and period is row["statement"]:
-        raise SystemExit("Missing issuer mirror provenance")
+                row["source"] != COPY_SOURCES[route] or row["edgar"]["annual_route"] != route or
+                (route == "regulator_20f") != (mirror[2] == FCA_BHP)):
+            raise SystemExit("Public copy does not match the expected SEC filing")
+    elif row["source"] in COPY_SOURCES.values() and period is row["statement"]:
+        raise SystemExit("Missing public 20-F provenance")
     for fact in period["facts"].values():
         source=fact["source"]
         url=fact["url"]
         official=source.startswith(("https://data.sec.gov/", "https://www.sec.gov/Archives/edgar/"))
         if mirror:
             official=(source==mirror[2] and url==report["url"] and fact["filed"]==report["filed"] and
-                      fact["form"]==report["form"] and fact["tag"].startswith("issuer20f:") and
+                      fact["form"]==report["form"] and fact["tag"].startswith(route + ":") and
                       len(fact["sha256"])==64)
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
@@ -77,12 +80,24 @@ for row in rows:
     if row["statement"]:
         verify_period(row["statement"], row)
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
+    audit = row.get("edgar", {})
+    reviews = audit.get("amendment_reviews", [])
+    if reviews:
+        statement, annual = row["statement"], audit["latest_annual"]
+        if (statement["end"] != annual["end"] or reviews[-1]["accession"] != annual["accession"]
+                or reviews[-1]["url"] != annual["url"] or
+                any(REVIEWED_AMENDMENTS.get((statement["filing"], r["accession"])) != r["scope"] for r in reviews)):
+            raise SystemExit("Amendment review does not match the reported accessions")
     for kind in ("quarter","ytd"):
-        if row.get("edgar",{}).get(kind):
-            verify_period(row["edgar"][kind], row)
+        if audit.get(kind):
+            period, interim = audit[kind], audit["latest_interim"]
+            if period["period_kind"] != kind or period["filing"] != interim["accession"] or period["end"] != interim["end"]:
+                raise SystemExit("Interim period does not match the expected SEC filing")
+            verify_period(period, row)
 
-if sum(r["source"]=="Issuer 20-F" for r in rows)!=snap["stats"].get("latest_annual_issuer_mirror",0):
-    raise SystemExit("Issuer mirror coverage mismatch")
+for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F", "latest_annual_regulator_mirror")):
+    if sum(r["source"]==source for r in rows)!=snap["stats"].get(count,0):
+        raise SystemExit(f"{source} coverage mismatch")
 if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
     raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent statements")
 if open_market:
