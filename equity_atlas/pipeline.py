@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import time
 
+from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
 from .capex import CAPEX_TAG, enrich_capex, supported as capex_supported
 from .depreciation import (
     TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
@@ -226,10 +227,6 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         issues.append(f"Annual income statement for {selected['end']}: {exc}")
                         if income_rule.revised_sales:
                             history[-1]=hold_unreconciled(history[-1],"sales")
-                if selected_filing and "ebit" not in history[-1]["facts"]:
-                    reason=gap_reason(cik,selected_filing)
-                    if reason:
-                        history[-1]={**history[-1],"operating_profit_gap":reason}
                 if selected_filing and depreciation_fields(cik, selected_filing):
                     try:
                         history[-1]=enrich_depreciation(cache,obj,meta,cik,selected_filing,history[-1])
@@ -240,6 +237,15 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                     reason=depreciation_gap(cik,selected_filing)
                     if reason:
                         history[-1]={**history[-1],"depreciation_gap":reason}
+                if selected_filing and exhibit_supported(cik, selected_filing):
+                    try:
+                        history[-1]=enrich_exhibit(cache,cik,selected_filing,history[-1],submissions,obj,meta)
+                    except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+                        issues.append(f"Annual earnings exhibit for {selected['end']}: {exc}")
+                if selected_filing and "ebit" not in history[-1]["facts"]:
+                    reason=gap_reason(cik,selected_filing)
+                    if reason:
+                        history[-1]={**history[-1],"operating_profit_gap":reason}
                 annual_anchor=annual or predecessor_annual
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
@@ -397,6 +403,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_cash_investment_profiled":sum(
             (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") == CAPEX_TAG for r in sec_rows
         ),
+        "annual_exhibits_profiled":sum(bool((r["statement"] or {}).get("annual_earnings_exhibit")) for r in sec_rows),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
         "annual_operating_profit_reviewed_gaps":sum(bool((r["statement"] or {}).get("operating_profit_gap")) for r in sec_rows),
         "annual_depreciation_profiled":sum(any(f["tag"] in {DEPRECIATION_TAG,WORKBOOK_DA_TAG}
@@ -488,7 +495,10 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
         case=prepare({**r,"kind":kind,"peer_group":group,"classification":classification,
                       "id":f"sec:{cik:010d}" if cik else f"lei:{lei}" if lei else f"unresolved:{sym}",
                       "accounting":accounting(h),"source":outcome["source"],"entity_name":outcome["entity_name"],
-                      "ev_exclusion":"Captive finance needs a separated operating/debt bridge." if sym in {"TM","F","GM"} else None,
+                      "ev_exclusion":(
+                          "Client-funds investments and financing need a separate enterprise-value bridge." if cik == ADP else
+                          "Captive finance needs a separated operating/debt bridge." if sym in {"TM","F","GM"} else None
+                      ),
                       "source_receipt":outcome["receipt"],"as_of":str(day),"issues":issues,
                       "edgar":outcome.get("edgar",{}),"balance_check":balance_check(h[-1]) if h else None},h,fx,day)
         cases.append(case)

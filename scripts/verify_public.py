@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
+                                         TAG as EXHIBIT_TAG, exhibit_facts)
 from equity_atlas.capex import CAPEX_TAG, PINNED as CAPEX_PINNED, valid_capex_components
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
@@ -41,6 +43,7 @@ income_profiles=0
 operating_gaps=0
 depreciation_profiles=0
 depreciation_gaps=0
+exhibit_profiles=0
 prices=[]
 market=snap.get("market_sources",{})
 if open_market:
@@ -156,6 +159,15 @@ def verify_period(period, row):
     annual_report = period.get("report") if period is row["statement"] else None
     selected_cik = annual_cik(row, annual_report) if annual_report else None
     income_profile = income_profile_for(selected_cik, annual_report) if annual_report else None
+    evidence = period.get("annual_earnings_exhibit")
+    disclosed = {}
+    if evidence:
+        try:
+            disclosed = exhibit_facts(selected_cik, annual_report, period, evidence)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise SystemExit("Unverified annual earnings exhibit") from exc
+        if any(period["facts"].get(key) != value for key, value in disclosed.items()):
+            raise SystemExit("Annual earnings exhibit facts do not reconcile")
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -216,6 +228,8 @@ def verify_period(period, row):
             official = bool(official and workbook and selected_cik == 1046179 and key == "da" and
                             fact.get("components") == list(DA_COMPONENTS) and all(k in period["facts"] for k in DA_COMPONENTS) and
                             fact["value"] == sum(period["facts"][k]["value"] for k in DA_COMPONENTS))
+        if fact["tag"] in {EXHIBIT_TAG, CLIENT_FUNDS_EBIT_TAG}:
+            official = disclosed.get(key) == fact
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -243,6 +257,14 @@ for row in rows:
         raise SystemExit("Valuation without an approved market input")
     if row["statement"]:
         verify_period(row["statement"], row)
+        if "annual_exhibits_profiled" in snap["stats"] and row["id"].startswith("sec:"):
+            period = row["statement"]
+            report = period.get("report")
+            cik = annual_cik(row, report) if report else None
+            profiled = bool(period.get("annual_earnings_exhibit"))
+            if report and (cik, report["accession"]) in EXHIBIT_PINNED and not profiled:
+                raise SystemExit(f"Refusing to lose reconciled annual earnings exhibit for {row['symbol']}")
+            exhibit_profiles += profiled
         if "annual_cash_investment_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
@@ -331,6 +353,8 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
                       (WORKBOOK_SOURCE, "latest_annual_sec_workbook")):
     if sum(r["source"]==source for r in rows)!=snap["stats"].get(count,0):
         raise SystemExit(f"{source} coverage mismatch")
+if "annual_exhibits_profiled" in snap["stats"] and exhibit_profiles != snap["stats"]["annual_exhibits_profiled"]:
+    raise SystemExit("Annual earnings exhibit coverage mismatch")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
 if "annual_income_profiled" in snap["stats"] and (income_profiles, operating_gaps) != (

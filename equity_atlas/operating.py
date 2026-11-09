@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from .annual_exhibit import ADP, supported as exhibit_supported
 from .facts import annual_rule_key, recurring_annual_rules
 from .rendered_filing import ENDPOINT, annual_table, scaled
 
@@ -219,6 +220,8 @@ REVIEWED_GAPS = {
 
 
 def gap_reason(cik, report):
+    if cik == ADP and exhibit_supported(cik, report):
+        return REVIEWED_GAPS[(ADP, "0000008670-26-000030")]
     return REVIEWED_GAPS.get((cik, report["accession"]))
 
 

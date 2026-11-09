@@ -87,6 +87,9 @@ for symbol, key, amount in (("BP", "capex_reported_total", 14_533_000_000),
         raise SystemExit(f"{symbol} {key}: expected {amount}")
     checked += 1
 INCOME_STATEMENT = {
+    "ADP": ("USD", {"ebit": 5_738_800_000, "client_funds_interest_expense": 318_300_000,
+                     "client_funds_interest_income_corporate": 278_100_000,
+                     "corporate_interest_expense_other": 141_000_000, "corporate_interest_income_other": 92_900_000}),
     "CNQ": ("CAD", {"ebit": 8_606_000_000, "asset_transaction_gain": 5_069_000_000,
                     "retirement_accretion": 380_000_000, "risk_management_net_gain": 18_000_000,
                     "foreign_exchange_net_gain": 762_000_000}),
@@ -113,7 +116,7 @@ for symbol, (currency, fields) in INCOME_STATEMENT.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-reviewed_gaps = {"ADP", "AEM", "BMY", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
+reviewed_gaps = {"AEM", "BMY", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
 for symbol in reviewed_gaps:
     period = rows[symbol]["statement"]
     if "ebit" in period["facts"] or not period.get("operating_profit_gap"):
@@ -123,7 +126,7 @@ DEPRECIATION = {
     "AMGN": ("USD", {"da_with_other": 5167}),
     "AMZN": ("USD", {"da_with_other": 65756}),
     "BABA": ("CNY", {"da": 45014, "da_ppe": 34963, "amortization": 10051, "ppe_da_with_impairment_and_lease": 37067}),
-    "CRM": ("USD", {"da_ppe": 1200, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
+    "CRM": ("USD", {"amortization_purchased_intangibles": 1687, "da_ppe": 1200, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
     "NVO": ("DKK", {"da": 14666, "da_with_impairment": 21982, "asset_impairment": 7316}),
     "0857.HK": ("CNY", {"da": 238036}),
     "ABBV": ("USD", {"da": 8139}),
