@@ -11,6 +11,7 @@ from .rendered_filing import ENDPOINT, annual_table, filing_tables, scaled, tabl
 
 TAG = "derived:FiledDebtCarryingAmount"
 TERM = ("us-gaap:LongTermDebtNoncurrent", "Long-term debt")
+TERM_INCLUDING_CURRENT = ("us-gaap:LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities", "Long-term debt")
 IFRS_TERM = "ifrs-full:LongtermBorrowings"
 IFRS_CURRENT = "ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"
 CONVERTIBLE = "us-gaap:ConvertibleDebtNoncurrent"
@@ -33,6 +34,9 @@ VERTEX = (875320, "0000875320-26-000056")
 CIBC = (1045520, "0001193125-25-307488")
 HSBC = (1089113, "0001089113-26-000010")
 IBKR = (1381197, "0001381197-26-000062")
+JPM = (19617, "0001628280-26-008131")
+MUFG = (67088, "0001628280-26-047095")
+PDD = (1737806, "0001104659-26-050727")
 RBC = (1000275, "0001193125-25-305927")
 SMFG = (1022837, "0001193125-26-283871")
 TD = (947263, "0001562762-25-000289")
@@ -53,6 +57,12 @@ HSBC_NOTES = (
 )
 GEV_LONG_TERM = ("disclosed:FinanceLeaseLiabilitiesAndOtherLongTermBorrowings",
                  "Finance lease liabilities and other long-term borrowings")
+PDD_BONDS = ("us-gaap:ConvertibleDebtCurrent", "Convertible bonds, current portion")
+MUFG_TRUST = ("disclosed:DueToTrustAccount", "Note 12 · Due to trust account")
+MUFG_SHORT = ("us-gaap:OtherShortTermBorrowings", "Other short-term borrowings")
+MUFG_COMBINED = ("mufg:DueToTrustAccountAndShortTermBorrowing", "Due to trust account and other short-term borrowings")
+# These two standard tags are separate consolidated lines in JPMorgan's filed balance sheet.
+TAGGED_BALANCE = {JPM: (("us-gaap:ShortTermBorrowings", "Short-term borrowings"), TERM_INCLUDING_CURRENT)}
 FUNDING = {
     CIBC: {
         "funding_secured_borrowings": (("ifrs-full:AssociatedLiabilitiesThatEntityContinuesToRecognise", "Secured borrowings"),),
@@ -63,6 +73,11 @@ FUNDING = {
         "funding_subordinated_liabilities": (("ifrs-full:SubordinatedLiabilities", "Subordinated liabilities"),),
     },
     IBKR: {"funding_short_borrowings": (("us-gaap:OtherShortTermBorrowings", "Short-term borrowings"),)},
+    MUFG: {
+        "funding_other_short_borrowings": (MUFG_SHORT,),
+        "funding_long_debt": (TERM_INCLUDING_CURRENT,),
+        "funding_trust_balance": (MUFG_TRUST,),
+    },
     RBC: {"funding_subordinated_liabilities": (("ifrs-full:SubordinatedLiabilities", "Subordinated debentures (Note 18)"),)},
     SMFG: {
         "funding_borrowings": (("ifrs-full:Borrowings", "Borrowings"),),
@@ -102,7 +117,10 @@ TOTALENERGIES = (879764, "0001104659-26-035876")
 # The face profiles name disjoint borrowing lines and exclude operating leases
 # and commitments. US GAAP finance leases are included when separately identified.
 FACE = {
-    **{key: tuple(line for component in fields.values() for line in component) for key, fields in FUNDING.items()},
+    **{key: tuple(line for component in fields.values() for line in component)
+       for key, fields in FUNDING.items() if key != MUFG},
+    **TAGGED_BALANCE,
+    MUFG: (MUFG_SHORT, TERM_INCLUDING_CURRENT, MUFG_COMBINED),
     ADP: (("us-gaap:CommercialPaper", "Obligations under commercial paper borrowings"), TERM),
     AGNICO: ((IFRS_TERM, "Long-term debt (Note 14)"),),
     ALIBABA: (
@@ -114,6 +132,7 @@ FACE = {
     ARM: (),
     BERKSHIRE: (),
     PALANTIR: (),
+    PDD: (),
     CAT: (("us-gaap:ShortTermBorrowings", "Short-term borrowings"),),
     CME: (("us-gaap:ShortTermBorrowings", "Short-term debt"), ("us-gaap:UnsecuredLongTermDebt", "Long-term debt")),
     EQUINIX: (
@@ -161,6 +180,8 @@ NOTES = {
     BERKSHIRE: BERKSHIRE_NOTES,
     HSBC: HSBC_NOTES,
     PALANTIR: (PALANTIR_ZERO,),
+    PDD: (PDD_BONDS,),
+    MUFG: (MUFG_TRUST,),
     CAT: (TERM, CAT_CURRENT),
     GE_VERNOVA: (("us-gaap:ShortTermBorrowings", "Other liabilities note · Short-term borrowings"),
                  FINANCE_LEASE_NOTES[0], GEV_LONG_TERM),
@@ -175,7 +196,7 @@ SEPARATE_LEASES = {AGNICO: (("ifrs-full:CurrentLeaseLiabilities", "Lease obligat
 LEASE_NOTES = {SPOTIFY: (("ifrs-full:CurrentLeaseLiabilities", "Leases note · Current lease liabilities"),)}
 RECURRING = recurring_annual_rules(FACE.keys() - {PALANTIR})
 BORROWING = re.compile(r"\b(debt|borrowings?|commercial paper|(?:convertible|exchangeable|senior) (?:senior )?notes|"
-                       r"financ(?:e|ing) lease liabilities|securitization borrowings)\b", re.I)
+                       r"convertible bonds|financ(?:e|ing) lease liabilities|securitization borrowings)\b", re.I)
 
 
 def rule_key(cik, report):
@@ -219,25 +240,28 @@ def debt_facts(cik, report, period, evidence):
             or tuple((part["tag"], part["line"]) for part in leases) != SEPARATE_LEASES.get(key, ())
             or tuple((part["tag"], part["line"]) for part in lease_notes) != LEASE_NOTES.get(key, ())):
         raise ValueError("Borrowing evidence does not match the annual balance sheet or reviewed component scopes")
-    source = {k: parts[0][k] for k in ("source", "sha256", "table_url", "table_sha256_16")} if parts else evidence["balance_source"]
+    source = evidence.get("balance_source") or {
+        k: parts[0][k] for k in ("source", "sha256", "table_url", "table_sha256_16")
+    }
     for part in parts + leases + notes + lease_notes:
         if (tuple(part[k] for k in keys) != scope or part["sign"] != 1 or
                 type(part["value"]) is not int or not 0 <= part["value"] <= evidence["liabilities"]
                 or not re.fullmatch(r"[0-9a-f]{64}", part["sha256"])):
             raise ValueError("Borrowing component does not match the annual report")
     disclosed_notes = {CAT_CURRENT[0], GEV_LONG_TERM[0], BERKSHIRE_NOTES[0][0],
-                       PALANTIR_ZERO[0], *(tag for tag, _ in HSBC_NOTES)}
+                       PALANTIR_ZERO[0], PDD_BONDS[0], MUFG_TRUST[0], *(tag for tag, _ in HSBC_NOTES)}
     tagged_notes = [part for part in notes + lease_notes if part["tag"] not in disclosed_notes]
-    if key == CAT:
-        current = notes[-1]
-        if (not valid_table_source(current, report, CAT_NOTE_FILE if key == (cik, report["accession"]) else None)
-                or sum(evidence["current_liability_components"]) + current["value"] != evidence["current_liabilities"]
+    if key in {CAT, PDD}:
+        if (sum(evidence["current_liability_components"]) + notes[-1]["value"] != evidence["current_liabilities"]
                 or not 0 <= evidence["current_liabilities"] <= evidence["liabilities"]):
-            raise ValueError("Caterpillar current debt does not tie to the classified current liabilities")
-    document_parts = notes[-1:] if key == GE_VERNOVA else notes if key == BERKSHIRE else []
-    if any(part["source"] != ENDPOINT or part["table_url"] != report["url"]
-           or not re.fullmatch(r"[0-9a-f]{16}", part["table_sha256_16"]) for part in document_parts):
-        raise ValueError("Borrowings do not match the filed liabilities note")
+            raise ValueError("Borrowing does not tie to the classified current liabilities")
+    if key == CAT and not valid_table_source(notes[-1], report, CAT_NOTE_FILE if key == (cik, report["accession"]) else None):
+        raise ValueError("Unverified Caterpillar debt maturity table")
+    document_parts = notes[-1:] if key == GE_VERNOVA else notes if key in {BERKSHIRE, PDD, MUFG} else []
+    if any(not filed_document_source(part, report) for part in document_parts):
+        raise ValueError("Borrowings do not match the filed liabilities disclosure")
+    if key == MUFG and parts[0]["value"] + notes[0]["value"] != parts[-1]["value"]:
+        raise ValueError("MUFG trust balance and other short-term borrowings do not tie to the combined line")
     if key in PDF_SOURCES and notes:
         form, url = PDF_SOURCES[key]
         if (report["form"] != form or report["end"] != "2025-12-31" or period["currency"] != "USD"
@@ -247,22 +271,33 @@ def debt_facts(cik, report, period, evidence):
         raise ValueError("A debt balance cannot be inferred from a no-borrowings disclosure")
     if key == HSBC and notes and any(note["value"] < part["value"] for note, part in zip(notes, parts, strict=True)):
         raise ValueError("HSBC group totals do not cover their dedicated funding lines")
-    if (not valid_table_source(source, report) or not re.fullmatch(r"[0-9a-f]{64}", source["sha256"])
+    if key in TAGGED_BALANCE:
+        verified_balance = (source["source"] == SEC.format(cik) and "table_url" not in source and
+                            all(facts[field]["source"] == source["source"] and facts[field]["sha256"] == source["sha256"]
+                                for field in ("assets", "liabilities")))
+    else:
+        verified_balance = valid_table_source(source, report)
+    if (not verified_balance or not re.fullmatch(r"[0-9a-f]{64}", source["sha256"])
             or any(any(part[k] != v for k, v in source.items()) for part in parts + leases)
             or any(part["source"] != SEC.format(cik) or "table_url" in part for part in tagged_notes)):
         raise ValueError("Unverified borrowing or lease source")
-    debt_parts = notes if key in FUNDING else parts + notes
+    debt_parts = parts + notes
+    if key in FUNDING:
+        debt_parts = notes if key == HSBC else []
     value = sum(part["value"] for part in debt_parts)
     leases = leases + lease_notes
     if value + sum(part["value"] for part in leases) > evidence["liabilities"]:
         raise ValueError("Borrowing and separately reported leases exceed total liabilities")
     result = {}
     if key in FUNDING:
-        by_line = {(part["tag"], part["line"]): part for part in parts}
+        by_line = {(part["tag"], part["line"]): part for part in parts + notes}
         for field, lines in FUNDING[key].items():
             selected = [by_line[line] for line in lines]
+            locator = "Consolidated balance-sheet funding line"
+            if key == MUFG and lines[0] in (MUFG_SHORT, MUFG_TRUST):
+                locator = "Consolidated funding disclosed in the notes"
             result[field] = {**selected[0], "tag": TAG, "value": sum(part["value"] for part in selected),
-                             "components": selected, "locator": "Consolidated balance-sheet funding line"}
+                             "components": selected, "locator": locator}
     if debt_parts:
         result["debt_total"] = {**debt_parts[0], "tag": TAG, "value": value, "components": debt_parts,
                                 "locator": "Consolidated borrowing at reported carrying amounts"}
@@ -272,6 +307,76 @@ def debt_facts(cik, report, period, evidence):
             "components": leases, "locator": "Lease liabilities presented separately from financial debt",
         }
     return result
+
+
+def filed_document_source(part, report):
+    return (part["source"] == ENDPOINT and part.get("table_url") == report["url"] and
+            bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
+
+
+def filed_document_tables(cache, cik, report, query):
+    tables, digests, receipt = filing_tables(cache, cik, report, query)
+    source = {"source": receipt["url"], "sha256": receipt["sha256"], "table_url": report["url"],
+              "table_sha256_16": digests.get(report["url"], "")}
+    if not filed_document_source(source, report):
+        raise ValueError("Missing checked document-table receipt")
+    return [t for t in tables if t["source"] == "document table" and t["url"] == report["url"]], source
+
+
+def pdd_bonds(cache, cik, report, currency):
+    if currency != "CNY" or not report["end"].endswith("-12-31"):
+        raise ValueError("Unexpected PDD balance-sheet currency or year-end")
+    tables, source = filed_document_tables(cache, cik, report, PDD_BONDS[1])
+    fiscal_column = f"As of December 31, {report['end'][:4]} RMB"
+    table, = (t for t in tables if t["title"] ==
+              "CONSOLIDATED BALANCE SHEETS / (Amounts in thousands of RMB and US$, except for number of shares and per share data)"
+              and t["columns"].count(fiscal_column) == 1)
+    col = table["columns"].index(fiscal_column)
+    value, = (r[col] for r in table["rows"] if r[0] == PDD_BONDS[1])
+    if value == "-":
+        value = 0
+    if type(value) not in (int, float):
+        raise ValueError("PDD convertible balance is neither reported numeric nor an explicit dash")
+    return scaled(value, 1_000), source
+
+
+def mufg_trust_balance(cache, cik, report, currency):
+    if currency != "JPY" or not report["end"].endswith("-03-31"):
+        raise ValueError("Unexpected MUFG balance-sheet currency or year-end")
+    query = "Amount outstanding at end of fiscal year"
+    tables, source = filed_document_tables(cache, cik, report, query)
+    year = report["end"][:4]
+    column = f"{year} (in millions, except percentages)"
+    table, = (t for t in tables if "summary of due to trust account transactions at March 31," in (t["title"] or "")
+              and t["title"].endswith(f"and {year} is as follows:") and t["columns"].count(column) == 1)
+    index = table["columns"].index(column)
+    value, = (scaled(row[index], 1_000_000) for row in table["rows"] if row[0] == query)
+    return value, source
+
+
+def tagged_balance_debt(obj, meta, report, period, key):
+    if (report["form"], period["currency"]) != ("10-K", "USD"):
+        raise ValueError("Unexpected JPMorgan annual borrowing form or currency")
+    stock = {**period, "start": None}
+    source = {"source": meta["url"], "sha256": meta["sha256"]}
+    evidence = {field: exact_sec_amount(obj, stock, report, concept)
+                for field, concept in (("assets", "us-gaap:Assets"), ("liabilities", "us-gaap:Liabilities"))}
+    if any(type(value) is not int for value in evidence.values()):
+        raise ValueError("Missing consolidated Company Facts balance-sheet totals")
+    equity = exact_sec_amount(obj, stock, report, "us-gaap:StockholdersEquity")
+    if equity != evidence["assets"] - evidence["liabilities"]:
+        raise ValueError("JPMorgan liabilities and equity do not reconcile to total assets")
+    parts = []
+    for tag, label in TAGGED_BALANCE[key]:
+        value = exact_sec_amount(obj, stock, report, tag)
+        parts.append(debt_component(tag, label, value, source, report, period["currency"]))
+    evidence.update(balance_source=source, face=parts, notes=[], leases=[], lease_notes=[])
+    return evidence
+
+
+def debt_component(tag, label, value, source, report, currency):
+    return {**source, "tag": tag, "line": label, "value": value, "sign": 1, "unit": currency,
+            "start": None, **{k: report[k] for k in ("accession", "filed", "form", "url")}}
 
 
 def caterpillar_current_debt(cache, cik, report, currency):
@@ -322,8 +427,7 @@ def vernova_long_term_debt(cache, cik, report, currency, short_term, lease_noncu
 def berkshire_debt(cache, cik, report, currency):
     if currency != "USD" or not report["end"].endswith("-12-31"):
         raise ValueError("Unexpected Berkshire reporting currency or year-end")
-    tables, digests, receipt = filing_tables(cache, cik, report, BERKSHIRE_LINE)
-    document = [t for t in tables if t["source"] == "document table" and t["url"] == report["url"]]
+    document, source = filed_document_tables(cache, cik, report, BERKSHIRE_LINE)
     day = f"December 31, {report['end'][:4]}"
     balance, = (t for t in document if t["title"] == "CONSOLIDATED BALANCE SHEETS / (dollars in millions)"
                 and t["columns"].count(day) == 1)
@@ -341,10 +445,7 @@ def berkshire_debt(cache, cik, report, currency):
         values.append(total)
     if values != balance_values:
         raise ValueError("Berkshire debt note amounts do not tie to the two consolidated balance-sheet lines")
-    return [scaled(value, 1_000_000) for value in values], {
-        "source": receipt["url"], "sha256": receipt["sha256"], "table_url": report["url"],
-        "table_sha256_16": digests.get(report["url"], ""),
-    }
+    return [scaled(value, 1_000_000) for value in values], source
 
 
 def pdf_debt(cache, key, assets, liabilities, face):
@@ -391,6 +492,15 @@ def pdf_debt(cache, key, assets, liabilities, face):
 
 def enrich_debt(cache, obj, meta, cik, report, period):
     key = rule_key(cik, report)
+    if key in TAGGED_BALANCE:
+        evidence = tagged_balance_debt(obj, meta, report, period, key)
+    else:
+        evidence = rendered_balance_debt(cache, obj, meta, cik, report, period, key)
+    result = debt_facts(cik, report, period, evidence)
+    return {**period, "facts": {**period["facts"], **result}, "annual_debt": evidence}
+
+
+def rendered_balance_debt(cache, obj, meta, cik, report, period, key):
     table, index, receipt, table_source = annual_table(cache, cik, report, period, "balance_sheet", None)
     additional_title = {CAT: "consolidated financial position at december 31",
                         GE_VERNOVA: "consolidated and combined statement of financial position",
@@ -422,20 +532,27 @@ def enrich_debt(cache, obj, meta, cik, report, period):
     scope = range(assets + 1, max(total))
 
     def component(tag, label, value, evidence_source):
-        return {**evidence_source, "tag": tag, "line": label, "value": value, "sign": 1,
-                "unit": period["currency"], "start": None, **{k: report[k] for k in ("accession", "filed", "form", "url")}}
+        return debt_component(tag, label, value, evidence_source, report, period["currency"])
 
     balance_source = {"source": receipt["url"], "sha256": receipt["sha256"], **table_source}
 
+    def label_matches(filed, label):
+        if key == MUFG and label in (TERM_INCLUDING_CURRENT[1], MUFG_COMBINED[1]):
+            filed = filed.partition(" (")[0]
+        return filed == label
+
     def face_part(tag, label):
-        i, = (i for i in scope if rows[i][:2] == [label, tag] and type(rows[i][index]) in (int, float))
+        i, = (i for i in scope if rows[i][1] == tag and label_matches(rows[i][0], label)
+              and type(rows[i][index]) in (int, float))
         value = scaled(rows[i][index], scale)
         exact = exact_sec_amount(obj, stock, report, tag)
         if exact is not None and exact != value:
             raise ValueError(f"Rendered borrowing line disagrees with Company Facts for {label}")
         return component(tag, label, value, balance_source)
 
-    disclosed = {(tag, label) for tag, label in FACE[key]}
+    disclosed = set(FACE[key])
+    if key == PDD:
+        disclosed.add(PDD_BONDS)
     if key not in FUNDING and any((rows[i][1], rows[i][0]) not in disclosed and type(rows[i][index]) in (int, float)
            and BORROWING.search(rows[i][0]) for i in scope):
         raise ValueError("Annual balance sheet contains an unreviewed borrowing line")
@@ -451,6 +568,17 @@ def enrich_debt(cache, obj, meta, cik, report, period):
             value, source = vernova_long_term_debt(cache, cik, report, period["currency"],
                 exact_sec_amount(obj, stock, report, "us-gaap:ShortTermBorrowings"),
                 exact_sec_amount(obj, stock, report, FINANCE_NONCURRENT))
+            return component(tag, label, value, source)
+        if (tag, label) == PDD_BONDS:
+            value, source = pdd_bonds(cache, cik, report, period["currency"])
+            rendered, = (rows[i][index] for i in scope if rows[i][:2] == [label, tag])
+            exact = exact_sec_amount(obj, stock, report, tag)
+            if ((rendered is not None and scaled(rendered, scale) != value)
+                    or (exact is not None and exact != value)):
+                raise ValueError("PDD convertible-bond amounts disagree across SEC sources")
+            return component(tag, label, value, source)
+        if (tag, label) == MUFG_TRUST:
+            value, source = mufg_trust_balance(cache, cik, report, period["currency"])
             return component(tag, label, value, source)
         value = exact_sec_amount(obj, stock, report, tag)
         if value is None:
@@ -475,15 +603,20 @@ def enrich_debt(cache, obj, meta, cik, report, period):
         lease_total = exact_sec_amount(obj, stock, report, "us-gaap:FinanceLeaseLiability")
         if lease_total != sum(part["value"] for part in evidence["notes"]):
             raise ValueError("Current and noncurrent finance leases do not tie to the filed total")
-    if key == CAT:
+    if key in {CAT, PDD}:
         current, = find(CURRENT, scope)
-        expected_tags = {"us-gaap:ShortTermBorrowings", "us-gaap:AccountsPayableCurrent", "us-gaap:AccruedLiabilitiesCurrent",
-                         "us-gaap:EmployeeRelatedLiabilitiesCurrent", "us-gaap:ContractWithCustomerLiabilityCurrent",
-                         "us-gaap:DividendsPayableCurrent", "us-gaap:OtherLiabilitiesCurrent"}
-        current_rows = [row for row in rows[assets+1:current] if type(row[index]) in (int, float)]
+        expected_tags = {
+            CAT: {"us-gaap:ShortTermBorrowings", "us-gaap:AccountsPayableCurrent", "us-gaap:AccruedLiabilitiesCurrent",
+                  "us-gaap:EmployeeRelatedLiabilitiesCurrent", "us-gaap:ContractWithCustomerLiabilityCurrent",
+                  "us-gaap:DividendsPayableCurrent", "us-gaap:OtherLiabilitiesCurrent"},
+            PDD: {"us-gaap:OtherLiabilitiesCurrent", "pdd:AdvancesToCustomerAndDeferredRevenueCurrent",
+                  "pdd:PayableToMerchantsCurrent", "us-gaap:AccountsPayableAndAccruedLiabilitiesCurrent",
+                  "us-gaap:DepositLiabilityCurrent", "us-gaap:OperatingLeaseLiabilityCurrent"},
+        }[key]
+        current_rows = [row for row in rows[assets+1:current] if type(row[index]) in (int, float)
+                        and (key != PDD or (row[1], row[0]) != PDD_BONDS)]
         if len(current_rows) != len(expected_tags) or {row[1] for row in current_rows} != expected_tags:
-            raise ValueError("Caterpillar current-liability lines changed")
+            raise ValueError("Classified current-liability lines changed")
         evidence["current_liabilities"] = scaled(rows[current][index], scale)
         evidence["current_liability_components"] = [scaled(row[index], scale) for row in current_rows]
-    result = debt_facts(cik, report, period, evidence)
-    return {**period, "facts": {**period["facts"], **result}, "annual_debt": evidence}
+    return evidence

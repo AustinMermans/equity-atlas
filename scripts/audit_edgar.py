@@ -514,6 +514,8 @@ for symbol in ("GE", "MUFG"):
 
 # Carrying amounts independently tied to the consolidated balance sheets and notes.
 DEBT_BALANCES = {
+    "JPM": ("USD", 499_982_000_000, None),
+    "PDD": ("CNY", 0, None),
     "BRK-B": ("USD", 129_081_000_000, None),
     "HSBC": ("USD", 253_798_000_000, None),
     "PLTR": ("USD", 0, None),
@@ -551,6 +553,8 @@ for symbol, (currency, debt, leases) in DEBT_BALANCES.items():
         checked += 1
 
 DEBT_COMPONENTS = {
+    "JPM": [64_776_000_000, 435_206_000_000],
+    "PDD": [0],
     "BRK-B": [45_763_000_000, 83_318_000_000],
     "HSBC": [216_217_000_000, 37_581_000_000],
     "PLTR": [0],
@@ -566,6 +570,8 @@ for symbol, values in DEBT_COMPONENTS.items():
     checked += len(values)
 
 FUNDING_BALANCES = {
+    "MUFG": ("JPY", {"funding_other_short_borrowings": 12_859_910_000_000, "funding_long_debt": 21_884_349_000_000,
+                     "funding_trust_balance": 1_776_344_000_000}),
     "CM": ("CAD", {"funding_secured_borrowings": 65_978_000_000, "funding_subordinated_liabilities": 7_819_000_000}),
     "HSBC": ("USD", {"funding_debt_securities_face": 99_675_000_000, "funding_subordinated_liabilities": 28_406_000_000}),
     "IBKR": ("USD", {"funding_short_borrowings": 19_000_000}),
