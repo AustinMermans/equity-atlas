@@ -17,6 +17,8 @@ from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.sec_workbook import PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
+from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason
+from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -32,6 +34,8 @@ sec_count=0
 interim_expected=0
 quarters=0
 capex_profiles=0
+income_profiles=0
+operating_gaps=0
 prices=[]
 market=snap.get("market_sources",{})
 if open_market:
@@ -41,6 +45,38 @@ if open_market:
     fx=market.get("fx")
     if fx and (fx["date"]!=market["date"] or fx["source"]["url"]!=CBC_FX or not 15<=fx["rate"]<=60):
         raise SystemExit("Unverified same-date FX")
+
+def annual_income_cik(row, report):
+    cik = int(row["id"].removeprefix("sec:"))
+    succession = SUCCESSIONS.get(cik)
+    if succession and row["edgar"].get("succession") == succession:
+        predecessor = succession["predecessor_cik"]
+        if report["path"].startswith(f"https://www.sec.gov/Archives/edgar/data/{predecessor}/"):
+            return predecessor
+    return cik
+
+
+def verify_income_fact(period, report, profile, key, fact):
+    parts = fact.get("components", [])
+    terms = profile.fields[key]
+    return (
+        period["period_kind"] == "annual" and
+        period["filing"] == report["accession"] == fact["accession"] and
+        period["end"] == report["end"] and fact["url"] == report["url"] and
+        fact["filed"] == report["filed"] and fact["form"] == report["form"] and
+        fact["start"] == period["start"] and fact["unit"] == period["currency"] and
+        fact["source"] == RENDERED_ENDPOINT and
+        fact.get("table_url") == report["path"] + "/" + profile.table and
+        re.fullmatch(r"[0-9a-f]{64}", fact["sha256"]) and
+        re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", "")) and
+        bool(fact.get("locator")) and len(parts) == len(terms) and
+        all(part["sign"] == (-1 if term.startswith("-") else 1) and
+            part["line"] == term.removeprefix("-") and bool(part["tag"]) and
+            math.isfinite(part["value"]) for part, term in zip(parts, terms)) and
+        fact["value"] == sum(part["sign"] * part["value"] for part in parts) and
+        fact["tag"] == (OPERATING_TAG if key == "ebit" else parts[0]["tag"])
+    )
+
 
 def verify_period(period, row):
     mirror = None
@@ -87,6 +123,8 @@ def verify_period(period, row):
             raise SystemExit("SEC workbook does not match the expected annual filing")
     elif row["source"] == WORKBOOK_SOURCE and period is row["statement"]:
         raise SystemExit("Missing SEC workbook provenance")
+    annual_report = period.get("report") if period is row["statement"] else None
+    income_profile = INCOME_PROFILES.get((annual_income_cik(row, annual_report), annual_report["accession"])) if annual_report else None
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -141,6 +179,9 @@ def verify_period(period, row):
                     for p in components) and
                 all(fact[k] == components[0][k] for k in ("url", "accession", "filed", "form", "start", "unit"))
             )
+        if fact["tag"] == OPERATING_TAG or (income_profile and key in income_profile.fields and source == RENDERED_ENDPOINT):
+            official = bool(income_profile and key in income_profile.fields and
+                            verify_income_fact(period, annual_report, income_profile, key, fact))
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -175,6 +216,26 @@ for row in rows:
                 if period["facts"].get("capex", {}).get("tag") != CAPEX_TAG:
                     raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
                 capex_profiles += 1
+        if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
+            period = row["statement"]
+            report = period.get("report")
+            cik = annual_income_cik(row, report) if report else None
+            profile = INCOME_PROFILES.get((cik, report["accession"])) if report else None
+            if profile:
+                expected_basis = SALES_BASIS if profile.revised_sales else None
+                if (not period.get("income_profiled") or period.get("sales_basis") != expected_basis or
+                        any(period["facts"].get(key, {}).get("source") != RENDERED_ENDPOINT
+                            for key in profile.fields)):
+                    raise SystemExit(f"Refusing to lose reconciled income statement fields for {row['symbol']}")
+                income_profiles += 1
+            elif period.get("income_profiled") or period.get("sales_basis"):
+                raise SystemExit(f"Unexpected annual income statement profile for {row['symbol']}")
+            if row["history"][-1].get("sales_basis") != period.get("sales_basis"):
+                raise SystemExit(f"Annual revenue basis differs between the statement and history for {row['symbol']}")
+            expected_gap = gap_reason(cik, report) if report and "ebit" not in period["facts"] else None
+            if period.get("operating_profit_gap") != expected_gap:
+                raise SystemExit(f"Unverified annual operating profit gap for {row['symbol']}")
+            operating_gaps += bool(expected_gap)
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
@@ -216,6 +277,9 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
         raise SystemExit(f"{source} coverage mismatch")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
+if "annual_income_profiled" in snap["stats"] and (income_profiles, operating_gaps) != (
+        snap["stats"]["annual_income_profiled"], snap["stats"]["annual_operating_profit_reviewed_gaps"]):
+    raise SystemExit("Annual income statement coverage mismatch")
 if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
         snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
     raise SystemExit("Standalone interim coverage mismatch")

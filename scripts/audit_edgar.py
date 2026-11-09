@@ -85,4 +85,34 @@ for symbol, key, amount in (("BP", "capex_reported_total", 14_533_000_000),
     if rows[symbol]["statement"]["facts"].get(key, {}).get("value") != amount:
         raise SystemExit(f"{symbol} {key}: expected {amount}")
     checked += 1
-print(f"Matched {checked} filed values across {len(set(EXPECTED) | set(CASH_INVESTMENT) | {'SO'})} issuers")
+INCOME_STATEMENT = {
+    "COP": ("USD", {"ebit": 10_938_000_000}),
+    "CVX": ("USD", {"ebit": 16_674_000_000, "sales": 184_432_000_000, "sales_and_other_income": 189_031_000_000}),
+    "ETN": ("USD", {"ebit": 5_209_000_000}),
+    "HCA": ("USD", {"ebit": 11_965_000_000}),
+    "KLAC": ("USD", {"ebit": 5_660_780_000}),
+    "LLY": ("USD", {"ebit": 26_302_000_000}),
+    "NEM": ("USD", {"ebit": 10_961_000_000}),
+    "NVS": ("USD", {"sales": 54_532_000_000, "other_revenues": 2_142_000_000}),
+    "PSX": ("USD", {"ebit": 2_274_000_000}),
+    "SHEL": ("USD", {"ebit": 27_582_000_000}),
+    "SNY": ("EUR", {"sales": 43_626_000_000, "other_revenues": 3_090_000_000}),
+    "TJX": ("USD", {"ebit": 7_178_000_000}),
+    "TTE": ("USD", {"ebit": 21_407_000_000, "sales": 182_344_000_000,
+                    "sales_before_excise": 201_196_000_000, "excise_taxes_on_sales": 18_852_000_000}),
+    "XOM": ("USD", {"ebit": 33_938_000_000, "sales": 323_905_000_000, "sales_and_other_income": 332_238_000_000}),
+}
+for symbol, (currency, fields) in INCOME_STATEMENT.items():
+    period = rows[symbol]["statement"]
+    for key, amount in fields.items():
+        fact = period["facts"].get(key, {})
+        if (period["currency"], fact.get("value")) != (currency, amount):
+            raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
+        checked += 1
+reviewed_gaps = {"ADP", "AEM", "BMY", "CNQ", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
+for symbol in reviewed_gaps:
+    period = rows[symbol]["statement"]
+    if "ebit" in period["facts"] or not period.get("operating_profit_gap"):
+        raise SystemExit(f"{symbol}: expected a documented operating profit gap")
+issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | {"SO"}
+print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

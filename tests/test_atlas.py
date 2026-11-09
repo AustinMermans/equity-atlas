@@ -38,6 +38,13 @@ class FinanceTests(unittest.TestCase):
         self.assertAlmostEqual(c["mid_margin"],.10)
         self.assertEqual(cycle_read(hist[1:],"commodity")["phase"],"insufficient cycle history")
 
+    def test_cycle_excludes_history_with_a_different_revenue_definition(self):
+        hist=[stmt(y,sales=100,ebit=10) for y in range(2018,2026)]
+        hist[-2].update(sales_basis="operating_sales")
+        hist[-1].update(sales_basis="operating_sales")
+        self.assertEqual(cycle_read(hist,"commodity"),
+                         {"phase":"insufficient cycle history","years":2})
+
     def test_loss_and_bank_disable_wrong_denominators(self):
         x=case("bank",[stmt(2025,net=-12,book=100,sales=100,ebit=10,cash=40,debt=60)])
         self.assertEqual(set(x["ratios"]),{"P/B"})

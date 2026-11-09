@@ -1,5 +1,6 @@
 """Retrieve SEC-rendered statements through the public Canli connector."""
 
+from decimal import Decimal, InvalidOperation
 import json
 import math
 
@@ -43,3 +44,13 @@ def amount(table, concept, column, label=None):
     if type(value) not in (int, float) or not math.isfinite(value):
         raise ValueError(f"Invalid rendered fact for {concept}")
     return value, row[0]
+
+
+def scaled(value, scale):
+    try:
+        exact = Decimal(str(value)) * scale
+        if not exact.is_finite() or exact != exact.to_integral_value():
+            raise ValueError("Unexpected fractional or nonfinite base unit in filing")
+        return int(exact)
+    except InvalidOperation as exc:
+        raise ValueError("Invalid numeric filing amount") from exc

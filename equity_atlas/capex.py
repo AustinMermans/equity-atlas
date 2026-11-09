@@ -1,12 +1,11 @@
 """Recover reviewed annual cash investment lines with filing-level provenance."""
 
-from decimal import Decimal
 import math
 import re
 
 from .fetch import SEC
 from .issuer_20f import column, pdf_pages
-from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes
+from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes, scaled
 
 PPE_OTHER = "us-gaap:PaymentsToAcquireOtherPropertyPlantAndEquipment"
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
@@ -123,13 +122,6 @@ def direct_amount(obj, statement, report, tag):
         return None
     value = next(iter(matches))
     return value if math.isfinite(value) else None
-
-
-def scaled(value, scale):
-    exact = Decimal(str(value)) * scale
-    if exact != exact.to_integral_value():
-        raise ValueError("Unexpected fractional base unit in cash investment disclosure")
-    return int(exact)
 
 
 def section(table, label):

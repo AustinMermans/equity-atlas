@@ -93,11 +93,22 @@ def quantile(seq, p):
     lo=int(i)
     return s[lo]+(s[min(lo+1,len(s)-1)]-s[lo])*(i-lo)
 
+def comparable_sales_history(history):
+    """Keep the latest contiguous history with the same sales definition."""
+    if not history:
+        return history
+    basis=history[-1].get("sales_basis")
+    for index in range(len(history)-2,-1,-1):
+        if history[index].get("sales_basis") != basis:
+            return history[index+1:]
+    return history
+
+
 def cycle_read(history, kind):
     if kind not in CYCLE:
         return {"phase":"not classified cyclical"}
     margins=[]
-    for row in reversed(history):
+    for row in reversed(comparable_sales_history(history)):
         v=values(row)
         if "ebit" not in v or v.get("sales",0)<=0:
             break
@@ -307,7 +318,8 @@ def fit(case, peers, override=None):
     sales=v.get("sales",0)
     income_margin=net/sales if net is not None and sales>0 else None
     hist=[values(x) for x in h]
-    recent=hist[-5:]
+    sales_hist=[values(x) for x in comparable_sales_history(h)]
+    recent=sales_hist[-5:]
     growth=[b["sales"]/a["sales"]-1 for a,b in zip(recent,recent[1:]) if a.get("sales",0)>0 and b.get("sales",0)>0]
     short_growth=max(-.05,min(.12,median(growth))) if len(growth)>=2 else g
     case["growth_state"]="high historical growth" if len(growth)>=2 and median(growth)>.12 else "ordinary or insufficient history"
@@ -402,7 +414,8 @@ def fit(case, peers, override=None):
     if "fcff" not in results:
         bridge=case["bridge"]
         if bridge is None or sales<=0 or "ebit" not in v or "capex" not in v or "da" not in v or v.get("capex",-1)<0:
-            block("fcff",case.get("ev_exclusion") or "Needs operating profit, sales, D&A, capex and a sourced cash/debt bridge.")
+            block("fcff",case.get("ev_exclusion") or case["statement"].get("operating_profit_gap") or
+                  "Needs operating profit, sales, D&A, capex and a sourced cash/debt bridge.")
         elif k in CYCLE and (not c.get("mid_margin") or c["mid_margin"]<=0):
             block("fcff","Cyclical baseline needs a positive midcycle margin from ≥5 preceding comparable years.")
         elif k not in CYCLE and v["ebit"]<=0:
@@ -413,7 +426,7 @@ def fit(case, peers, override=None):
             target_margins=[c.get("low_margin",end_margin),end_margin,c.get("high_margin",end_margin)]
             taxes=[x["tax"]/x["pretax"] for x in hist[-4:] if x.get("pretax",0)>0 and 0<=x.get("tax",-1)<=.60*x["pretax"]]
             tax=median(taxes) if len(taxes)>=2 else .25
-            nwcs=[(x["ar"]+x["inventory"]-x["ap"])/x["sales"] for x in hist[-4:]
+            nwcs=[(x["ar"]+x["inventory"]-x["ap"])/x["sales"] for x in sales_hist[-4:]
                   if x.get("sales",0)>0 and {"ar","inventory","ap"}<=x.keys()]
             nwc_sales=max(-.30,min(.40,median(nwcs))) if len(nwcs)>=2 else .05
             da_sales=v["da"]/sales
@@ -466,7 +479,7 @@ def fit(case, peers, override=None):
                 if {"lt_issued","lt_repaid"}<=row.keys() and row.get("short_borrow") == 0:
                     return row["lt_issued"]-row["lt_repaid"]
                 return None
-            basis=hist[-3:]
+            basis=sales_hist[-3:]
             borrows=[net_debt_cash(x) for x in basis]
             lev=[debt_amount(x)/x["book"] for x in basis if debt_amount(x) is not None and x.get("book",0)>0]
             if (case["accounting"]!="US GAAP" or k in CYCLE or len(basis)<3 or None in borrows or
