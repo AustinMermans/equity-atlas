@@ -623,6 +623,22 @@ for symbol, (currency, values) in CASH_DISTRIBUTIONS.items():
         checked += 1
 
 BORROWING_CASH_AMOUNTS = {
+    "AEM": ("USD", {"debt_net": -950_000_000, "debt_issuance_cost_paid": 8_245_000}),
+    "AMGN": ("USD", {"debt_net": -5_683_000_000, "debt_repurchase_cash_paid": 683_000_000}),
+    "APH": ("USD", {"debt_net": 8_520_000_000, "debt_issuance_cost_paid": 89_100_000}),
+    "BTI": ("GBP", {"debt_net": -118_000_000, "interest_paid_financing": 1_631_000_000,
+                     "lease_interest_paid_financing": 40_000_000, "lease_principal_paid": 177_000_000,
+                     "hybrid_equity_issuance_cash": 1_050_000_000, "hybrid_equity_redemption_cash": 883_000_000}),
+    "ENB": ("CAD", {"debt_net": 5_945_000_000}),
+    "KLAC": ("USD", {"debt_net": -1_602_000}),
+    "NET": ("USD", {"debt_net": 2_000_000_000, "convertible_capped_call_cash": 26_216_000}),
+    "PANW": ("USD", {"debt_net": -160_000_000, "convertible_capped_call_cash": 10_000_000}),
+    "TTE": ("USD", {"debt_net": 3_235_000_000, "hybrid_equity_net_cash": -1_139_000_000,
+                     "current_financial_items_cash": 3_220_000_000,
+                     "current_assets_cash_in_borrowing_line": 593_000_000}),
+    "UL": ("EUR", {"debt_net_identified": -1_497_000_000, "lease_principal_paid": 301_000_000,
+                    "interest_paid_financing": 1_018_000_000}),
+    "VZ": ("USD", {"debt_net": 8_761_000_000, "lease_principal_paid": 944_000_000}),
     "AAPL": ("USD", {"debt_net": -18_307_000_000}),
     "MSFT": ("USD", {"debt_net": -3_000_000_000, "finance_lease_principal_note": 3_101_000_000,
                      "finance_lease_liability": 66_594_000_000}),

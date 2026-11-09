@@ -81,6 +81,21 @@ REVIEWED_ROWS = {
     ("tot:ProceedsFromRepaymentsOfNonCurrentBorrowings", "net issuance (repayment) of non-current debt"): "net",
     ("vz:ProceedsFromIssuanceOfLongtermDebtExcludingAssetbackedDebt", "proceeds from long-term borrowings"): "draw",
     ("wfc:ProceedsFromRepaymentsOfShortTermDebtNet", "short-term borrowings"): "net",
+    ("aem:RepaymentsOfSeniorNotesClassifiedAsFinancingActivities", "repayment of senior notes (note 14)"): "repayment",
+    ("aem:PaymentsForDebtFinancingAndExtinguishmentCosts", "debt financing and extinguishment costs (note 14)"): "costs",
+    ("us-gaap:PaymentsOfFinancingCosts", "payment of costs related to debt financing"): "costs",
+    ("enb:ProceedsFromIssuanceOfLongTermDebtNetOfIssuanceCosts", "debenture and term note issues, net of issue costs"): "draw",
+    ("us-gaap:ProceedsFromRelatedPartyDebt", "net change in affiliate loans"): "net",
+    ("klac:ProceedsFromRepaymentsOfDebtIssuanceNetOfIssuanceCosts", "proceeds from issuance of debt, net of issuance costs"): "net",
+    ("bti:PaymentsOfInterestLeaseLiabilitiesClassifiedAsFinancingActivities", "interest element of lease liabilities"): "lease_interest",
+    ("bti:PaymentsOfCapitalLeaseLiabilitiesClassifiedAsFinancingActivities", "capital element of lease liabilities"): "lease",
+    ("ul:PaymentOfLeaseLiabilitiesIncludingCapitalOnlyClassifiedAsFinancingActivities", "capital element of lease rental payments"): "lease",
+    ("tot:CashFlowsFromUsedInIncreaseDecreaseInCurrentFinancialAssetsAndLiabilities",
+     "increase (decrease) in current financial assets and liabilities"): "current_financial_items",
+    ("cme:ChangeInPerformanceBondAndGuarantyFundContributions", "change in performance bond and guaranty fund contributions"): "clearing",
+    ("cloud:PaymentsForCappedCall", "purchases of capped calls related to the 2030 convertible senior notes"): "capped_call",
+    ("cloud:ProceedsFromSettlementOfCappedCall", "proceeds from settlement of the 2025 capped calls"): "capped_call",
+    ("us-gaap:ProceedsFromConvertibleDebt", "proceeds from capped calls related to convertible senior notes"): "capped_call",
 }
 MIXED = {US + "RepaymentsOfDebtAndCapitalLeaseObligations", US + "RepaymentsOfLongTermDebtAndCapitalSecurities",
          US + "PaymentOfFinancingAndStockIssuanceCosts", US + "PaymentsOfFinancingCosts"}
@@ -112,7 +127,16 @@ def supported(obj, report, period):
             any(exact_sec_amount(obj, period, report, tag) is not None for tag in TAGS | MIXED))
 
 
-def role(tag, label, value):
+def reviewed_scope(tag, label, cik):
+    if (cik == 820313 and tag == US + "RepaymentsOfLongTermDebtAndCapitalSecurities"
+            and label == "repayments of senior notes and other long-term debt"):
+        return "repayment"
+    return REVIEWED_ROWS.get((tag, label))
+
+
+def role(tag, label, value, cik=None):
+    if cik == borrowing_notes.TOTAL and (label, tag) == borrowing_notes.TOTAL_CURRENT:
+        return "unallocated" if value else "other"
     label = label.casefold()
     if tag in DISCONTINUED:
         return "unallocated" if value else "other"
@@ -120,10 +144,12 @@ def role(tag, label, value):
         return "asset" if value <= 0 else "unallocated"
     if tag == AMAZON_PRINCIPAL and label == "principal repayments of financing obligations":
         return "obligations" if value <= 0 else "unallocated"
-    if scoped := REVIEWED_ROWS.get((tag, label)):
-        if scoped == "draw" and value < 0 or scoped in {"repayment", "lease"} and value > 0:
+    if tag == IFRS + "InterestPaidClassifiedAsFinancingActivities" and "interest paid" in label:
+        return "interest" if value <= 0 and not MIXED_WORDS.search(label) else "unallocated"
+    if scoped := reviewed_scope(tag, label, cik):
+        if scoped == "draw" and value < 0 or scoped in {"repayment", "lease", "costs", "lease_interest"} and value > 0:
             return "unallocated"
-        return "lease" if scoped == "lease" else "borrowing"
+        return "borrowing" if scoped in {"draw", "repayment", "net"} else scoped
     if tag in TAGS:
         if MIXED_WORDS.search(label):
             return "unallocated" if value else "other"
@@ -159,11 +185,14 @@ def extract(cache, obj, cik, report, period):
              for row in activity if type(row[column]) in (int, float) and row[1] not in CONTINUING]
     for line in lines:
         tag, value = line["tag"], line["value"]
-        kind = role(tag, line["line"], value)
+        kind = role(tag, line["line"], value, cik)
         if kind not in {"borrowing", "lease", "costs"} or sum(x["tag"] == tag for x in lines) > 1:
             continue
         exact = exact_sec_amount(obj, period, report, tag)
-        if exact is not None and exact != (-value if tag in REPAYMENTS | LEASE | COSTS else value):
+        # An explicitly reviewed face label may narrow a broad standard concept.
+        scoped = reviewed_scope(tag, line["line"].casefold(), cik)
+        payment = tag in REPAYMENTS | LEASE | COSTS or scoped in {"repayment", "lease", "costs"}
+        if exact is not None and exact != (-value if payment else value):
             raise ValueError(f"Borrowing cash flow differs from Company Facts for {line['line']}")
     return {**source, "source": receipt["url"], "sha256": receipt["sha256"], "title": title,
             "operating": scaled(cfo[column], money), "financing": scaled(total[column], money), "lines": lines}
@@ -181,24 +210,46 @@ def borrowing_cash_facts(report, period, evidence):
             or len({(line["line"], line["tag"]) for line in lines}) != len(lines)
             or type(evidence["financing"]) is not int or sum(x["value"] for x in lines) != evidence["financing"]):
         raise ValueError("Borrowing cash flow does not reconcile to the consolidated financing subtotal")
+    cik = int(report["path"].split("/")[-2])
     keys = {
-        "borrowing": "debt_net", "lease": "lease_principal_paid", "costs": "debt_issuance_cost_paid",
+        "borrowing": "debt_net", "debt_repurchase": "debt_repurchase_cash_paid", "lease": "lease_principal_paid", "costs": "debt_issuance_cost_paid",
         "asset": "financed_asset_principal_paid", "obligations": "financing_obligation_principal_paid",
         "prepayment": "finance_lease_prepayment_paid", "collateral": "financing_collateral_cash",
         "other_financing": "financing_other_balance_sheet_cash", "rounding": "financing_note_rounding_difference",
+        "interest": "interest_paid_financing", "lease_interest": "lease_interest_paid_financing",
+        "clearing": "clearing_contribution_cash", "capped_call": "convertible_capped_call_cash",
+        "current_financial_items": "current_financial_items_cash",
+        "current_borrowing_assets": "current_assets_cash_in_borrowing_line",
+        "hybrid_draw": "hybrid_equity_issuance_cash", "hybrid_repayment": "hybrid_equity_redemption_cash",
+        "hybrid_net": "hybrid_equity_net_cash",
     }
     groups = {k: [] for k in (*keys, "unallocated", "other")}
     original = None
     if "allocation_note" in evidence:
         original, parts = borrowing_notes.allocate_note(report, period, evidence)
-        if (role(original["tag"], original["line"], original["value"]) != "unallocated"
+        if (role(original["tag"], original["line"], original["value"], cik) != "unallocated"
                 or sum(part["value"] for _, part in parts) != original["value"]):
             raise ValueError("Borrowing note components do not allocate the mixed statement line")
         for kind, part in parts:
             groups[kind].append(part)
+    hybrid_note = evidence.get("hybrid_note")
+    hybrids = borrowing_notes.hybrid_roles(report, period, hybrid_note) if hybrid_note else {}
     for line in lines:
-        if line is not original:
-            groups[role(line["tag"], line["line"], line["value"])].append(line)
+        if line is original:
+            continue
+        group = hybrids.get((line["line"], line["tag"]))
+        if group:
+            value = line["value"]
+            if group == "hybrid_draw" and value < 0 or group == "hybrid_repayment" and value > 0:
+                raise ValueError("Unexpected sign on perpetual equity instrument financing")
+            if group == "other" and (coupon := period["facts"].get("div_hybrid_paid")) and coupon["value"] != -value:
+                raise ValueError("Perpetual note payment differs from the filed distribution")
+            line = {**line, "table_url": hybrid_note["table_url"]}
+        else:
+            group = role(line["tag"], line["line"], line["value"], cik)
+        groups[group].append(line)
+    borrowing_notes.split_explicit_lease(report, period, groups)
+    groups["borrowing"].extend(groups["debt_repurchase"])
     if not any(groups[k] for k in (*keys, "unallocated")):
         raise ValueError("No classified debt or lease cash flow on the financing statement")
     facts = {}
@@ -210,7 +261,8 @@ def borrowing_cash_facts(report, period, evidence):
     for group, key in keys.items():
         if not groups[group]:
             continue
-        sign = -1 if group in {"lease", "costs", "asset", "obligations", "prepayment"} else 1
+        sign = -1 if group in {"lease", "costs", "asset", "obligations", "prepayment", "interest",
+                               "lease_interest", "hybrid_repayment", "debt_repurchase"} else 1
         facts[key] = {**provenance, **{k: report[k] for k in ("url", "filed", "form", "accession")},
                       "start": period["start"], "unit": period["currency"], "tag": TAG,
                       "value": sign * sum(x["value"] for x in groups[group]),
@@ -226,6 +278,13 @@ def enrich_borrowing_cash(cache, obj, cik, report, period):
     if borrowing_notes.candidate(cik, pending):
         try:
             scoped = {**evidence, "allocation_note": borrowing_notes.read_note(cache, cik, report)}
+            facts, pending = borrowing_cash_facts(report, period, scoped)
+            evidence = scoped
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            gap["borrowing_note_gap"] = str(exc)
+    if borrowing_notes.hybrid_candidate(cik, pending):
+        try:
+            scoped = {**evidence, "hybrid_note": borrowing_notes.read_hybrid_note(cache, cik, report)}
             facts, pending = borrowing_cash_facts(report, period, scoped)
             evidence = scoped
         except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:

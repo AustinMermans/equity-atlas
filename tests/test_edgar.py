@@ -20,6 +20,7 @@ from equity_atlas.inline import periods_from_inline
 from equity_atlas.issuer_20f import column, linked_report, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
 from equity_atlas.borrowing_cash import TAG as BORROWING_CASH_TAG, role as borrowing_role
+from equity_atlas.borrowing_notes import split_explicit_lease
 from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount, net_debt_cash
 
 DAY = date(2026, 11, 9)
@@ -255,6 +256,20 @@ class EdgarTests(unittest.TestCase):
         self.assertIsNone(net_debt_cash({"facts": {**facts, "capex_financing_payment": {"value": 0}}}))
         self.assertIsNone(net_debt_cash({"facts": {"short_borrow": {"value": 0}, "lt_issued": {"value": 30},
                                                   "lt_repaid": {"value": 40}}}))
+
+    def test_mixed_debt_and_lease_repayment_uses_same_filing(self):
+        report = {"accession": "test", "url": "https://www.sec.gov/filing", "filed": "2026-02-01"}
+        period = {"currency": "USD", "start": "2025-01-01", "facts": {"finance_lease_principal_note": {
+            **report, "tag": "us-gaap:FinanceLeasePrincipalPayments", "unit": "USD", "start": "2025-01-01", "value": 20,
+        }}}
+        mixed = {"tag": "vz:RepaymentsOfLongTermBorrowingsAndFinanceLeaseObligations",
+                 "line": "Repayments of long-term borrowings and finance lease obligations", "value": -100}
+        groups = {"borrowing": [], "lease": [], "unallocated": [mixed]}
+        split_explicit_lease({**report, "accession": "different"}, period, groups)
+        self.assertEqual(groups["unallocated"], [mixed])
+        split_explicit_lease(report, period, groups)
+        self.assertEqual(groups["unallocated"], [])
+        self.assertEqual((groups["borrowing"][0]["value"], groups["lease"][0]["value"]), (-80, -20))
 
     def test_quarter_does_not_take_year_to_date_cashflow(self):
         common={"end":"2026-09-30","filed":"2026-10-29","form":"10-Q","accn":"0000000001-26-000002"}

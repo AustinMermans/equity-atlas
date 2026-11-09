@@ -7,13 +7,18 @@ from .rendered_filing import ENDPOINT, filing_tables, scaled, table_belongs_to_f
 
 MILLION = 1_000_000
 LEASE_TAG = "us-gaap:FinanceLeasePrincipalPayments"
-ALPHABET, COSTCO, EQUINOR = 1652044, 909832, 1140625
+ALPHABET, COSTCO, EQUINOR, AMGEN, TOTAL = 1652044, 909832, 1140625, 318154, 879764
+TOTAL_CURRENT = ("Increase (decrease) in current borrowings", "ifrs-full:CashFlowsFromUsedInIncreaseDecreaseInCurrentBorrowings")
 RULES = {
     ALPHABET: ("Repayments of debt", "us-gaap:RepaymentsOfDebtAndCapitalLeaseObligations",
                "Financing cash flows used for financing leases", "Leases - Supplemental Cash Flow Information (Details)"),
     COSTCO: ("Financing lease payments and other financing activities, net",
              "cost:FinancingLeasePaymentsAndOtherFinancingActivitiesNet", "Financing cash flows — finance leases",
              "Leases, Supplemental Cash Flow Information (Details)"),
+    TOTAL: (*TOTAL_CURRENT, "Variations of financial debt",
+            "Financial structure and financial costs - Variations of financial debt (Details)"),
+    AMGEN: ("Extinguishment of debt", "us-gaap:PaymentsOfDebtExtinguishmentCosts",
+            "Extinguishment of debt", "Financing arrangements - Debt Extinguishment (Details)"),
     EQUINOR: ("Net current finance debt and other financing activities",
               "ifrs-full:OtherInflowsOutflowsOfCashClassifiedAsFinancingActivities",
               "Net current finance debt and other finance activities",
@@ -84,6 +89,30 @@ def read_note(cache, cik, report):
                     "document_total": note_amount(t["rows"], FINANCING_TOTAL, columns[-1]),
                 })
                 break
+    elif cik == TOTAL:
+        document, = (t for t in tables if t["source"] == "document table" and t["url"] == report["url"]
+                     and (t["title"] or "").endswith("The variations of financial debt are detailed as follows:")
+                     and t["columns"].count(f"As of December 31, {end.year}") == 1
+                     and t["columns"].count("Cash changes") == 1)
+        cash = document["columns"].index("Cash changes")
+        note.update(document_sha256_16=digests.get(report["url"]), values={
+            field: note_amount(document["rows"], row, cash) for field, row in {
+                "current": "Current borrowings", "current_assets": "Current financial instruments - assets (a)",
+                "current_total": "Current financial debt and related financial instruments",
+                "noncurrent": "Non-current financial debt", "noncurrent_total": "Non-current financial debt and related financial instruments",
+                "total": "NET FINANCIAL DEBT",
+            }.items()
+        })
+        group_end, = (i for i, r in enumerate(rows) if r[0] == "Non-current financial debt and related financial instruments"
+                      and r[index] is None)
+        note["values"]["rendered_total"] = note_amount(rows[:group_end], "Cash changes", index)
+    elif cik == AMGEN:
+        detail, = (i for i, r in enumerate(rows) if r[0] == "Notes" and r[index] is None)
+        consolidated = rows[:detail]
+        note["values"] = {
+            "extinguishment": note_amount(consolidated, label, index),
+            "other_repayment": note_amount(consolidated, "Repayments of debt", index),
+        }
     else:
         lease = note_amount(rows, ALPHABET_LEASE if cik == ALPHABET else COSTCO_LEASE, index)
         note["values"] = {"lease": lease}
@@ -111,7 +140,7 @@ def allocate_note(report, period, evidence):
             or source["source"] != ENDPOINT or not re.fullmatch(r"[0-9a-f]{64}", source["sha256"])
             or not re.fullmatch(r"[0-9a-f]{16}", source["table_sha256_16"] or "")
             or not table_ok
-            or (cik != COSTCO and not re.fullmatch(r"[0-9a-f]{16}", note.get("document_sha256_16") or ""))):
+            or (cik in {ALPHABET, EQUINOR, TOTAL} and not re.fullmatch(r"[0-9a-f]{16}", note.get("document_sha256_16") or ""))):
         raise ValueError("Invalid source for borrowing note")
     values = note["values"]
     if any(type(value) is not int or value % MILLION for value in values.values()):
@@ -132,6 +161,24 @@ def allocate_note(report, period, evidence):
         if diff:
             parts.append(("rounding", part("Mixed financing line rounding difference", diff, report["url"])))
         return original, parts
+    if cik == TOTAL:
+        noncurrent, = (r["value"] for r in evidence["lines"]
+                       if r["tag"] == "tot:ProceedsFromRepaymentsOfNonCurrentBorrowings"
+                       and r["line"] == "Net issuance (repayment) of non-current debt")
+        if (values["current_total"] != total or values["current"] + values["current_assets"] != total
+                or values["noncurrent"] != noncurrent or values["total"] != values["rendered_total"]
+                or values["noncurrent_total"] + total != values["total"]):
+            raise ValueError("TotalEnergies borrowing and asset cash changes do not match its roll-forward")
+        return original, [
+            ("borrowing", part("Current borrowings in the financing note", values["current"], report["url"])),
+            ("current_borrowing_assets", part("Financial assets within the current borrowing line", values["current_assets"], report["url"])),
+        ]
+    if cik == AMGEN:
+        other, = (r["value"] for r in evidence["lines"]
+                  if r["tag"] == "us-gaap:RepaymentsOfLongTermDebt" and r["line"] == "Repayment of debt")
+        if total >= 0 or values["extinguishment"] != -total or values["other_repayment"] != -other:
+            raise ValueError("Amgen's debt repurchases and separate repayments do not match the filed note")
+        return original, [("debt_repurchase", part("Cash paid to repurchase and extinguish debt", total))]
 
     tagged = period["facts"].get("finance_lease_principal_note", {})
     lease = values["lease"]
@@ -156,3 +203,96 @@ def allocate_note(report, period, evidence):
     if prepayment:
         parts.append(("prepayment", part(ALPHABET_PREPAY, -prepayment)))
     return original, parts
+
+# These instruments are classified in shareholders' equity in the selected filing.
+BAT = 1303523
+HYBRIDS = {
+    BAT: ("GBP", "Perpetual hybrid bonds", {
+        ("Proceeds from the issue of perpetual hybrid bonds, net of issuance costs",
+         "ifrs-full:ProceedsFromIssueOfBondsNotesAndDebentures"): "hybrid_draw",
+        ("Redemption of perpetual hybrid bonds, net of costs",
+         "ifrs-full:RepaymentsOfBondsNotesAndDebentures"): "hybrid_repayment",
+    }),
+    TOTAL: ("USD", "Perpetual subordinated notes", {
+        ("Net issuance of perpetual subordinated notes",
+         "tot:ProceedsFromIssueRepaymentOfSubordinatedNotes"): "hybrid_net",
+        ("Payments on perpetual subordinated notes",
+         "tot:PaymentForCouponsOnSubordinatedNotes"): "other",
+    }),
+}
+
+
+def hybrid_candidate(cik, lines):
+    return cik in HYBRIDS and any((x["line"], x["tag"]) in HYBRIDS[cik][2] for x in lines)
+
+
+def read_hybrid_note(cache, cik, report):
+    currency, query, _ = HYBRIDS[cik]
+    tables, digests, receipt = filing_tables(cache, cik, report, query)
+    end = date.fromisoformat(report["end"])
+    if cik == BAT:
+        table, = (t for t in tables if t["source"] == "document table" and t["url"] == report["url"]
+                  and (t["title"] or "").endswith(" / Group Balance Sheet")
+                  and t["columns"][1:2] == [f"{end.year} £m"]
+                  and any(r[0] == "Equity - capital and reserves" for r in t["rows"]))
+        # The source preserves the note marker as an unheaded column.
+        row, = (r for r in table["rows"] if r[0] == query and re.fullmatch(r"\d+\([a-z]\)", str(r[1])))
+        amount = scaled(row[2], MILLION)
+    else:
+        column = f"12 Months Ended {end:%b. %d, %Y} USD ($)"
+        table, = (t for t in tables if t["source"] == "xbrl report"
+                  and t["title"] == "Shareholders' equity and share-based payments - Perpetual subordinated notes (Details)"
+                  and t["units"] == "€ in Millions, $ in Millions" and t["columns"].count(column) == 1
+                  and table_belongs_to_filing(t["url"], report))
+        amount = note_amount(table["rows"], "Amount of perpetual deeply subordinated notes recorded in equity | $",
+                             table["columns"].index(column))
+    return {"source": receipt["url"], "sha256": receipt["sha256"], "table_url": table["url"],
+            "table_sha256_16": digests.get(table["url"]), "currency": currency, "equity_amount": amount}
+
+
+def hybrid_roles(report, period, note):
+    cik = int(report["path"].split("/")[-2])
+    currency, _, scoped = HYBRIDS[cik]
+    amount = note["equity_amount"]
+    balance = period["facts"].get("hybrid_equity")
+    if (note["currency"] != currency or period["currency"] != currency or
+            note["source"] != ENDPOINT or not re.fullmatch(r"[0-9a-f]{64}", note["sha256"])
+            or not re.fullmatch(r"[0-9a-f]{16}", note["table_sha256_16"] or "")
+            or (note["table_url"] != report["url"] if cik == BAT else not table_belongs_to_filing(note["table_url"], report))
+            or type(amount) is not int or amount <= 0 or amount % MILLION
+            or amount >= period["facts"]["total_equity"]["value"]
+            or (balance and (balance["value"], balance["url"]) != (amount, report["url"]))):
+        raise ValueError("Unverified classification of perpetual instruments in equity")
+    return scoped
+
+
+EMBEDDED_LEASE = {
+    ("Repayments of long-term borrowings and finance lease obligations",
+     "vz:RepaymentsOfLongTermBorrowingsAndFinanceLeaseObligations"),
+    ("Repayments of long-term debt and finance lease obligations",
+     "us-gaap:RepaymentsOfLongTermDebtAndCapitalSecurities"),
+    ("Repayment of debt and finance lease obligations", "us-gaap:RepaymentsOfDebtAndCapitalLeaseObligations"),
+}
+
+
+def split_explicit_lease(report, period, groups):
+    """A combined repayment explicitly names both debt and finance leases."""
+    if groups["lease"]:
+        return
+    mentions = [line for line in groups["unallocated"] if "lease" in line["line"].casefold()]
+    if len(mentions) != 1:
+        return
+    line = mentions[0]
+    if (line["line"], line["tag"]) not in EMBEDDED_LEASE:
+        return
+    fact = period["facts"].get("finance_lease_principal_note", {})
+    lease = fact.get("value")
+    if (tuple(fact.get(k) for k in ("tag", "unit", "accession", "start", "url", "filed")) !=
+            (LEASE_TAG, period["currency"], report["accession"], period["start"], report["url"], report["filed"])
+            or type(lease) is not int or not 0 <= lease <= -line["value"]):
+        return
+    groups["unallocated"].remove(line)
+    groups["borrowing"].append({**line, "line": "Debt repayment excluding finance lease principal",
+                                 "value": line["value"] + lease})
+    groups["lease"].append({**line, "line": "Finance lease principal in combined repayment",
+                             "value": -lease, "table_url": fact["url"]})
