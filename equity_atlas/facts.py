@@ -209,7 +209,12 @@ def balance_check(statement):
     return result
 
 
-def _assemble(groups, filings=None, kind="annual"):
+# The filed accounting policy identifies PDD's USD column as a convenience
+# translation. Prefer the presentation currency when the exact filing has both.
+PRESENTATION_CURRENCY = {1737806: "CNY"}
+
+
+def _assemble(groups, filings=None, kind="annual", presentation_currency=None):
     """Choose a coherent as-filed report, then a reporting currency and period."""
     filings = filings or {}
     by_end = defaultdict(list)
@@ -223,7 +228,7 @@ def _assemble(groups, filings=None, kind="annual"):
         near = (date.fromisoformat(pub) - end).days <= 240
         # A full amended report supersedes its original. Without the accession's
         # period, favor well-covered near-period facts over later comparatives.
-        score = (same_report, near, pub if same_report else "", len(chosen), pub, currency, accession)
+        score = (same_report, near, pub if same_report else "", currency == presentation_currency, len(chosen), pub, currency, accession)
         record = {"end": str(end), "start": start, "currency": currency, "filing": accession,
                   "facts": chosen, "conflicts": conflicts, "period_kind": kind}
         if info:
@@ -286,7 +291,7 @@ def _group_sec(payload, meta, asof, cik, filings, kind):
 def from_sec(payload, meta, asof, cik, filings=None, kind="annual"):
     filings = filings or {}
     groups = _group_sec(payload, meta, asof, cik, filings, kind)
-    return _assemble(groups, filings, kind)
+    return _assemble(groups, filings, kind, PRESENTATION_CURRENCY.get(cik))
 
 def from_esef(entries, asof, lei):
     groups = defaultdict(lambda:defaultdict(list))

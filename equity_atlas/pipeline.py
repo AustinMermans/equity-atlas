@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import time
 
+from .capex import CAPEX_TAG, enrich_capex, supported as capex_supported
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -191,14 +192,19 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                             except (OSError,ValueError,KeyError,TypeError) as recovery_exc:
                                 issues.append(f"Public 20-F fallback for {annual['end']}: {recovery_exc}")
                 selected=history[-1] if history else None
-                claim_filing=filings.get(selected["filing"]) if selected else None
-                claim_profile=claim_copy(cik,claim_filing) if claim_filing else None
+                selected_filing=filings.get(selected["filing"]) if selected else None
+                claim_profile=claim_copy(cik,selected_filing) if selected_filing else None
                 if claim_profile:
                     try:
                         blob, receipt=cache.get(claim_profile[3],8760)
-                        history[-1]=add_claims(blob,receipt,claim_filing,cik,selected)
+                        history[-1]=add_claims(blob,receipt,selected_filing,cik,selected)
                     except (OSError,ValueError,KeyError,TypeError) as exc:
                         issues.append(f"Annual equity claims for {selected['end']}: {exc}")
+                if selected_filing and capex_supported(cik, selected_filing):
+                    try:
+                        history[-1]=enrich_capex(cache,obj,meta,cik,selected_filing,history[-1])
+                    except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+                        issues.append(f"Annual cash investment for {selected['end']}: {exc}")
                 annual_anchor=annual or predecessor_annual
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
@@ -353,6 +359,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "latest_annual_regulator_mirror":sum(bool(r["source"]=="FCA 20-F" and r["statement"] and
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
+        "annual_cash_investment_profiled":sum(
+            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") == CAPEX_TAG for r in sec_rows
+        ),
         "interim_expected":len(expected_interims),
         "interim_available":sum(bool(r["edgar"].get("quarter")) for r in expected_interims),
     }

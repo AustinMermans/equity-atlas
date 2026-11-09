@@ -2,10 +2,12 @@
 from datetime import date
 import json
 import math
+import re
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas.capex import CAPEX_TAG, REPORTED_TOTALS, supported as capex_supported, valid_capex_source
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
@@ -29,6 +31,7 @@ fresh=0
 sec_count=0
 interim_expected=0
 quarters=0
+capex_profiles=0
 prices=[]
 market=snap.get("market_sources",{})
 if open_market:
@@ -118,6 +121,26 @@ def verify_period(period, row):
                             fact["filed"] == report["filed"] and fact["form"] == report["form"] and
                             fact["unit"] == period["currency"] and fact["start"] is None and
                             bool(fact.get("locator")) and len(fact["sha256"]) == 64)
+        if fact["tag"] == CAPEX_TAG or key == "capex_reported_total":
+            report = period.get("report")
+            cik = int(row["id"].removeprefix("sec:"))
+            components = fact.get("components", []) if key == "capex" else [fact]
+            official = bool(
+                report and period is row["statement"] and capex_supported(cik, report) and
+                key in {"capex", "capex_reported_total"} and components and
+                (key != "capex_reported_total" or (cik in REPORTED_TOTALS and fact["tag"] == REPORTED_TOTALS[cik][0])) and
+                period["filing"] == report["accession"] and period["end"] == report["end"] and
+                fact["value"] == sum(p["value"] for p in components) and
+                len(components) == len({(p["tag"], p["locator"]) for p in components}) and
+                fact["source"] == components[0]["source"] and fact["sha256"] == components[0]["sha256"] and
+                all(p["url"] == report["url"] and p["accession"] == report["accession"] and
+                    p["filed"] == report["filed"] and p["form"] == report["form"] and
+                    p["start"] == period["start"] and p["unit"] == period["currency"] and
+                    math.isfinite(p["value"]) and p["value"] >= 0 and bool(p.get("locator")) and
+                    re.fullmatch(r"[0-9a-f]{64}", p["sha256"]) and valid_capex_source(p, cik, report)
+                    for p in components) and
+                all(fact[k] == components[0][k] for k in ("url", "accession", "filed", "form", "start", "unit"))
+            )
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -145,6 +168,13 @@ for row in rows:
         raise SystemExit("Valuation without an approved market input")
     if row["statement"]:
         verify_period(row["statement"], row)
+        if "annual_cash_investment_profiled" in snap["stats"] and row["id"].startswith("sec:"):
+            period = row["statement"]
+            report = period.get("report")
+            if report and capex_supported(int(row["id"].removeprefix("sec:")), report):
+                if period["facts"].get("capex", {}).get("tag") != CAPEX_TAG:
+                    raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
+                capex_profiles += 1
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
@@ -184,6 +214,8 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
                       (WORKBOOK_SOURCE, "latest_annual_sec_workbook")):
     if sum(r["source"]==source for r in rows)!=snap["stats"].get(count,0):
         raise SystemExit(f"{source} coverage mismatch")
+if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
+    raise SystemExit("Annual cash investment profile coverage mismatch")
 if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
         snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
     raise SystemExit("Standalone interim coverage mismatch")

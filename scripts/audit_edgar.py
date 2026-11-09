@@ -60,4 +60,29 @@ for kind, expected in {
         checked += 1
     if kind == "quarter" and {"cfo", "capex"} & period["facts"].keys():
         raise SystemExit("SO standalone quarter contains year-to-date cash flow")
-print(f"Matched {checked} filed values across {len(EXPECTED) + 1} issuers")
+# Independently checked face-statement and reconciliation amounts, in base units.
+CASH_INVESTMENT = {
+    "ABNB": ("USD", 33_000_000), "ADP": ("USD", 665_100_000),
+    "APP": ("USD", 28_791_000), "ASML": ("EUR", 1_631_200_000),
+    "BABA": ("CNY", 126_937_000_000), "BP": ("USD", 13_221_000_000),
+    "CNQ": ("CAD", 6_791_000_000), "COP": ("USD", 12_553_000_000),
+    "ENB": ("CAD", 9_165_000_000), "LLY": ("USD", 7_841_000_000),
+    "NEE": ("USD", 24_606_000_000), "PDD": ("CNY", 1_145_077_000),
+    "PSX": ("USD", 2_233_000_000), "RIO": ("USD", 12_335_000_000),
+    "SAP": ("EUR", 739_000_000), "SHEL": ("USD", 18_947_000_000),
+    "SNY": ("EUR", 3_538_000_000), "TTE": ("USD", 16_953_000_000),
+    "VLO": ("USD", 1_885_000_000), "VZ": ("USD", 17_011_000_000),
+}
+for symbol, expected in CASH_INVESTMENT.items():
+    period = rows[symbol]["statement"]
+    fact = period["facts"].get("capex", {})
+    if (period["currency"], fact.get("value")) != expected:
+        raise SystemExit(f"{symbol} cash investment: expected {expected}; got {fact}")
+    checked += 1
+for symbol, key, amount in (("BP", "capex_reported_total", 14_533_000_000),
+                            ("SHEL", "capex_reported_total", 20_915_000_000),
+                            ("PDD", "cfo", 106_938_690_000)):
+    if rows[symbol]["statement"]["facts"].get(key, {}).get("value") != amount:
+        raise SystemExit(f"{symbol} {key}: expected {amount}")
+    checked += 1
+print(f"Matched {checked} filed values across {len(set(EXPECTED) | set(CASH_INVESTMENT) | {'SO'})} issuers")

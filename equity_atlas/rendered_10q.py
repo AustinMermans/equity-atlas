@@ -1,14 +1,12 @@
 """Extract the Southern consolidated statements from SEC-rendered tables."""
 
 from datetime import date
-import json
-import math
 import re
 
 from .facts import EPS_FIELDS, SHARE_FIELDS, STOCK, balance_check
+from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes
 
 ROUTE = "rendered_10q"
-ENDPOINT = "https://canlicapital.com/mcp/canli"
 CIK = 92122
 ACCESSION = "0000092122-26-000069"
 END = "2026-09-30"
@@ -62,30 +60,8 @@ def table_url(report, section):
     return report["path"] + "/" + TABLES[section][1]
 
 
-def request_bytes(report, equity):
-    arguments = {"company": "SO", "period": "quarterly", "accession": report["accession"]}
-    if equity:
-        arguments["statement"] = "equity"
-    return json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "run_tool", "arguments": {"name": "financial_statements", "arguments": arguments}},
-    }, sort_keys=True).encode()
-
-
 def read_tables(raw, receipt, report, sections):
-    if receipt["url"] != ENDPOINT or len(raw) > 400_000:
-        raise ValueError("Unexpected rendered filing response source or size")
-    result = json.loads(raw)["result"]
-    if result.get("isError"):
-        raise ValueError("Canli could not retrieve the rendered SEC filing")
-    data = result["structuredContent"]
-    accession, form, filed, end, index = data["filings"]["rows"][0]
-    if (data["company"]["cik"] != CIK or data["period"] != "quarterly" or len(data["filings"]["rows"]) != 1 or
-            (accession, form, filed, end) != tuple(report[k] for k in ("accession", "form", "filed", "end")) or
-            not index.startswith(report["path"] + "/")):
-        raise ValueError("Canli response does not match Southern's exact filing")
-    sources = result["_meta"]["canlicapital.com/receipt"]["sources"]
-    checksums = {row["url"]: row["sha256_16"] for row in sources}
+    data, checksums = decode_response(raw, receipt, report, CIK, "quarterly")
     tables = {}
     for section in sections:
         table = data[section]
@@ -100,23 +76,12 @@ def read_tables(raw, receipt, report, sections):
     return tables
 
 
-def amount(table, concept, column, label=None):
-    matches = [r for r in table["rows"] if r[1] == concept and (label is None or r[0] == label)]
-    if not matches or len({r[column] for r in matches}) != 1:
-        raise ValueError(f"Missing or conflicting rendered fact for {concept}")
-    row = matches[0]
-    value = row[column]
-    if type(value) not in (int, float) or not math.isfinite(value):
-        raise ValueError(f"Invalid rendered fact for {concept}")
-    return value, row[0]
-
-
 def periods_from_rendered_10q(cache, report, cik, kinds):
     if not rendered_10q_url(cik, report):
         raise ValueError("Rendered statements are not registered for this accession")
     tables = {}
     for equity, sections in ((False, ("income", "balance_sheet", "cash_flow")), (True, ("equity",))):
-        raw, receipt = cache.get(ENDPOINT, 8760, post_json=request_bytes(report, equity))
+        raw, receipt = cache.get(ENDPOINT, 8760, post_json=request_bytes("SO", "quarterly", report["accession"], "equity" if equity else None))
         tables.update(read_tables(raw, receipt, report, sections))
     income, balance, cash, equity = (tables[key] for key in ("income", "balance_sheet", "cash_flow", "equity"))
     if (income["columns"] != ["line", "concept", f"3 months to {END}", "3 months to 2025-09-30",

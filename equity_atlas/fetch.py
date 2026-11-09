@@ -11,6 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from .rendered_filing import ENDPOINT as RENDERED_FILING_ENDPOINT
+
 RANK = "https://companiesmarketcap.com/?download=csv"
 INDEX = "https://www.sec.gov/files/company_tickers.json"
 MIRROR = "https://raw.githubusercontent.com/jadchaar/sec-cik-mapper/main/mappings/stocks/ticker_to_cik.json"
@@ -33,6 +35,8 @@ class Cache:
         self.offline = offline
         self.lock = threading.Lock()
         self.next_sec = 0.0
+        self.rendered_lock = threading.Lock()
+        self.next_rendered = 0.0
         self.user_agent = os.environ.get("ATLAS_SEC_USER_AGENT", "")
         self.hits = self.downloads = 0
 
@@ -63,6 +67,10 @@ class Cache:
                     with self.lock:
                         time.sleep(max(0, self.next_sec - time.monotonic()))
                         self.next_sec = time.monotonic() + .28
+                if url == RENDERED_FILING_ENDPOINT:
+                    with self.rendered_lock:
+                        time.sleep(max(0, self.next_rendered - time.monotonic()))
+                        self.next_rendered = time.monotonic() + 2.0
                 headers = {"User-Agent": self.user_agent if sec else "EquityAtlas/0.1 (private research)"}
                 if post_json is not None:
                     headers.update({"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
