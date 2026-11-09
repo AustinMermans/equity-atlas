@@ -123,6 +123,18 @@ for symbol in reviewed_gaps:
         raise SystemExit(f"{symbol}: expected a documented operating profit gap")
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
+    "ADBE": ("USD", {"da": 546, "da_with_accretion": 818}),
+    "APP": ("USD", {"da_with_writeoffs": 194.778, "da_ppe_and_finance_lease": 25.7, "amortization": 97.404}),
+    "DUK": ("USD", {"da_with_accretion": 7704, "da_excluding_nuclear_fuel": 6324, "retirement_accretion": 474}),
+    "EQNR": ("USD", {"da": 9838, "da_with_impairment": 12318, "da_with_impairment_and_writeoffs": 12473}),
+    "GD": ("USD", {"da": 924}),
+    "HD": ("USD", {"da": 4121, "da_ppe": 3514, "amortization": 607}),
+    "MRNA": ("USD", {"da": 215, "da_ppe": 211}),
+    "NFLX": ("USD", {"da": 333.389, "amortization_content": 16422.166, "da_including_content": 16755.555}),
+    "SPGI": ("USD", {"da": 1179}),
+    "UBER": ("USD", {"da": 719, "da_including_nonoperating": 747}),
+    "UL": ("EUR", {"da": 1310, "da_with_impairment": 1353, "asset_impairment": 43}),
+    "XOM": ("USD", {"da_with_impairment": 25993}),
     "AMGN": ("USD", {"da_with_other": 5167}),
     "AMZN": ("USD", {"da_with_other": 65756}),
     "BABA": ("CNY", {"da": 45014, "da_ppe": 34963, "amortization": 10051, "ppe_da_with_impairment_and_lease": 37067}),
@@ -184,7 +196,7 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("AMGN", "AMZN", "CRM", "CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
+for symbol in ("AMGN", "AMZN", "APP", "CRM", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")

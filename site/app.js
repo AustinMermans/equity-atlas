@@ -10,6 +10,11 @@ const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—'
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
 const fieldNames={
+ da_with_writeoffs:'Depreciation, amortization and write-offs',
+ da_with_impairment_and_writeoffs:'Depreciation, amortization, net impairments and exploration write-offs',
+ da_including_nonoperating:'Cash-flow D&A including nonoperating amounts',
+ da_including_content:'Total D&A including content amortization',
+ amortization_content:'Content asset amortization',
  amortization_purchased_intangibles:'Amortization of purchased intangible assets',
  client_funds_interest_expense:'Interest expense tied to the client-funds strategy',
  client_funds_interest_income_corporate:'Corporate interest income tied to the client-funds strategy',
@@ -92,7 +97,7 @@ function detail(r) {
        ' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">Source</a></li>';
    }).join('')+'</ul></details>';
  };
- const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':k==='da'&&period.facts.da_including_content?'D&A excluding content amortization':field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
  const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
  const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
  const q=r.market;

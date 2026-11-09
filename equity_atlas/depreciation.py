@@ -3,12 +3,32 @@
 import re
 
 from .capex import PDFS
+from .catalog import SUCCESSIONS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, linked_report, pdf_pages
 from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belongs_to_filing
 
 TAG = "derived:FiledDepreciationAndAmortization"
+ADOBE = (796343, "0000796343-26-000003")
+APPLOVIN = (1751008, "0001751008-26-000010")
+DUKE = (1326160, "0001326160-26-000014")
+EQUINOR = (1140625, "0001140625-26-000013")
+EXXON = (34088, "0000034088-26-000045")
+GENERAL_DYNAMICS = (40533, "0000040533-26-000006")
+HOME_DEPOT = (354950, "0001628280-26-019436")
+MODERNA = (1682852, "0001682852-26-000033")
+NETFLIX = (1065280, "0001065280-26-000034")
+SP_GLOBAL = (64040, "0000064040-26-000013")
+UBER = (1543151, "0001543151-26-000015")
+UNILEVER = (217410, "0000217410-26-000007")
+US_DA = "us-gaap:DepreciationDepletionAndAmortization"
+US_AMORTIZATION = "us-gaap:AmortizationOfIntangibleAssets"
+IFRS_DA = "ifrs-full:DepreciationAndAmortisationExpense"
+IFRS_CASH_DA_AND_IMPAIRMENT = "ifrs-full:AdjustmentsForDepreciationAndAmortisationExpenseAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss"
+HOME_DEPOT_PPE_DA = (US_DA, "Depreciation and amortization, excluding amortization of intangible assets")
+NETFLIX_OTHER_DA = (US_DA, "Depreciation and amortization of property, equipment and intangibles")
+NETFLIX_CONTENT_DA = ("nflx:CostofServicesAmortizationofStreamingContentAssets", "Amortization of content assets")
 AMGEN = (318154, "0000318154-26-000010")
 AMAZON = (1018724, "0001018724-26-000004")
 ALIBABA = (1577552, "0001193125-26-231755")
@@ -26,6 +46,76 @@ NOVARTIS_PDF = "https://www.novartis.com/sites/novartis_com/files/novartis-annua
 # Bind interpretation to the face statement of the exact accession. Tags
 # alone cannot distinguish pure D&A from cash-flow adjustments with impairment.
 CASH_TABLES = {
+    ADOBE: (
+        "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {
+            "da_with_accretion": ((US_DA, "Depreciation, amortization and accretion"),),
+        },
+    ),
+    APPLOVIN: (
+        "Consolidated Statements of Cash Flows", "R8.htm", 1_000, {
+            "da_with_writeoffs": ((US_DA, "Amortization, depreciation and write-offs"),),
+        },
+    ),
+    DUKE: (
+        "Condensed Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {
+            "da_with_accretion": ((US_DA, "Depreciation, amortization and accretion (including amortization of nuclear fuel)"),),
+        },
+    ),
+    EQUINOR: (
+        "CONSOLIDATED STATEMENT OF CASH FLOWS", "R7.htm", 1_000_000, {
+            "da_with_impairment_and_writeoffs": (
+                (IFRS_CASH_DA_AND_IMPAIRMENT, "Depreciation, amortisation and net impairments, including exploration write-offs"),
+            ),
+        },
+    ),
+    EXXON: (
+        "Consolidated Statement Of Cash Flows", "R7.htm", 1_000_000, {
+            "da_with_impairment": ((US_DA, "Depreciation and depletion (includes impairments)"),),
+        },
+    ),
+    GENERAL_DYNAMICS: (
+        "Consolidated Statement of Cash Flows", "R6.htm", 1_000_000, {
+            "da": (
+                ("us-gaap:Depreciation", "Depreciation of property, plant and equipment"),
+                ("gd:AmortizationofIntangibleAssetsAndFinanceLeaseRightofUseAssets",
+                 "Amortization of intangible and finance lease right-of-use assets"),
+            ),
+        },
+    ),
+    HOME_DEPOT: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000, {
+            "da": (HOME_DEPOT_PPE_DA, (US_AMORTIZATION, "Intangible asset amortization")),
+            "da_ppe": (HOME_DEPOT_PPE_DA,),
+        },
+    ),
+    MODERNA: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000, {
+            "da": (("us-gaap:OtherDepreciationAndAmortization", "Depreciation and amortization"),),
+        },
+    ),
+    NETFLIX: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R5.htm", 1_000, {
+            "da": (NETFLIX_OTHER_DA,),
+            "amortization_content": (NETFLIX_CONTENT_DA,),
+            "da_including_content": (NETFLIX_OTHER_DA, NETFLIX_CONTENT_DA),
+        },
+    ),
+    SP_GLOBAL: (
+        "Consolidated Statements of Cash Flows", "R7.htm", 1_000_000, {
+            "da": (("us-gaap:Depreciation", "Depreciation"), (US_AMORTIZATION, "Amortization of intangibles")),
+        },
+    ),
+    UBER: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000, {
+            "da_including_nonoperating": (("uber:DepreciationAndAmortizationIncludingAmountFromOtherIncomeExpense",
+                                            "Depreciation and amortization"),),
+        },
+    ),
+    UNILEVER: (
+        "Consolidated cash flow statement", "R9.htm", 1_000_000, {
+            "da_with_impairment": ((IFRS_CASH_DA_AND_IMPAIRMENT, "Depreciation, amortisation and impairment"),),
+        },
+    ),
     AMGEN: (
         "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R9.htm", 1_000_000, {
             "da_with_other": (("us-gaap:DepreciationDepletionAndAmortization", "Depreciation, amortization and other"),),
@@ -376,6 +466,35 @@ PPE_IMPAIRMENT = ("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlant
 
 # Note lines are exact consolidated Company Facts values for the same filing.
 NOTES = {
+    ADOBE: {
+        "da": (("us-gaap:OtherDepreciationAndAmortization", "Property and equipment note · Depreciation and amortization"),
+               (US_AMORTIZATION, "Goodwill and other intangibles note · Amortization of other intangibles")),
+    },
+    APPLOVIN: {
+        "da_ppe_and_finance_lease": ((DEPRECIATION[0], "Property and equipment note · Depreciation including finance leases"),),
+        "amortization": ((US_AMORTIZATION, "Goodwill and intangible assets note · Amortization expense"),),
+    },
+    DUKE: {
+        "da_excluding_nuclear_fuel": (("us-gaap:CostDepreciationAmortizationAndDepletion",
+                                       "Consolidated statement of operations · Depreciation and amortization"),),
+        "retirement_accretion": (("us-gaap:AssetRetirementObligationAccretionExpense",
+                                  "Asset retirement obligations note · Accretion expense"),),
+    },
+    EQUINOR: {
+        "da": ((IFRS_DA, "Operating segments note · Consolidated depreciation and amortisation"),),
+        "da_with_impairment": (("ifrs-full:DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
+                                "Consolidated statement of income · Depreciation, amortisation and net impairments"),),
+    },
+    MODERNA: {
+        "da_ppe": ((US_DA, "Property, plant and equipment note · Depreciation and amortization"),),
+    },
+    UBER: {
+        "da": ((US_DA, "Consolidated statement of operations · Depreciation and amortization"),),
+    },
+    UNILEVER: {
+        "da": ((IFRS_DA, "Depreciation and amortisation expense"),),
+        "asset_impairment": (("ifrs-full:ImpairmentLoss", "Impairment"),),
+    },
     ALIBABA: {
         "da": (("us-gaap:DepreciationDepletionAndAmortization", "Note 15 · Property and equipment depreciation"),
                ("us-gaap:AmortizationOfIntangibleAssets", "Amortization of intangible assets and licensed copyrights")),
@@ -420,6 +539,8 @@ NOTES = {
 }
 
 CHECKS = {
+    NETFLIX: ("da_including_content", "-da", "-amortization_content"),
+    UNILEVER: ("da_with_impairment", "-da", "-asset_impairment"),
     NOVO: ("da_with_impairment", "-da", "-asset_impairment"),
     (1467373, "0001467373-26-000049"): (
         "da_with_other", "-da", "-amortization_deferred_transition", "-operating_lease_cost", "-other_da_adjustment",
@@ -438,6 +559,9 @@ PDF_FIELDS = {
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
 GAPS = {
+    APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. The asset notes show separate depreciation and amortization amounts.",
+    DUKE: "The cash-flow adjustment includes accretion and nuclear fuel amortization. The income statement and asset-retirement note show narrower amounts.",
+    EXXON: "The cash-flow line includes impairments. The filing describes impairments across several expense lines without separately identifying an exact depreciation and depletion subtotal.",
     AMGEN: "The cash-flow adjustment includes other items. The asset notes must supply a consistent depreciation and amortization subtotal.",
     AMAZON: "The cash-flow adjustment includes content and operating lease items. Reconcile those scopes with the related investments before using a D&A add-back.",
     SALESFORCE: "The cash-flow adjustment includes amortization and impairment of right-of-use assets. Fixed-asset depreciation and contract-acquisition amortization are shown separately.",
@@ -453,6 +577,12 @@ GAPS = {
 
 # These tags were verified as partial when used as the company's total.
 PARTIAL_DA = {
+    ADOBE: (US_DA, "da_with_accretion", "Depreciation, amortization and accretion"),
+    APPLOVIN: (US_DA, "da_with_writeoffs", "Amortization, depreciation and write-offs, including discontinued operations"),
+    DUKE: (US_DA, "da_with_accretion", "Depreciation, amortization and accretion including nuclear fuel"),
+    EXXON: (US_DA, "da_with_impairment", "Depreciation and depletion including impairments"),
+    HOME_DEPOT: (US_DA, "da_ppe", HOME_DEPOT_PPE_DA[1]),
+    MODERNA: (US_DA, "da_ppe", "Property, plant and equipment depreciation and amortization"),
     AMGEN: ("us-gaap:DepreciationDepletionAndAmortization", "da_with_other", "Depreciation, amortization and other"),
     AMAZON: ("us-gaap:DepreciationDepletionAndAmortization", "da_with_other",
              "Cash-flow D&A including capitalized content, operating lease assets, and other"),
@@ -466,6 +596,11 @@ PARTIAL_DA = {
 }
 PINNED = CASH_TABLES.keys() | NOTES.keys() | PDF_FIELDS.keys() | GAPS.keys()
 RECURRING = recurring_annual_rules(PINNED - {AIRBNB, NOVARTIS})
+# Carry reviewed scope forward for SEC-confirmed registrant successions.
+for successor, succession in SUCCESSIONS.items():
+    predecessor = succession["predecessor_cik"]
+    if successor not in RECURRING and predecessor in RECURRING:
+        RECURRING[successor] = RECURRING[predecessor]
 
 
 def rule_key(cik, report):
@@ -659,6 +794,14 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
     return {**statement, "facts": facts}
 
 
+DA_SCOPE_BOUNDS = {
+    ADOBE: ("da", "da_with_accretion"),
+    DUKE: ("da_excluding_nuclear_fuel", "da_with_accretion"),
+    MODERNA: ("da_ppe", "da"),
+    UBER: ("da", "da_including_nonoperating"),
+}
+
+
 def reconciles(key, facts):
     check = CHECKS.get(key, ())
     if any(field.removeprefix("-") not in facts for field in check):
@@ -668,6 +811,12 @@ def reconciles(key, facts):
     if key == ALIBABA:
         return (facts["da"]["components"][0]["value"] == facts["da_ppe"]["value"] and
                 facts["da"]["components"][1]["value"] == facts["amortization"]["value"])
+    bounds = DA_SCOPE_BOUNDS.get(key)
+    if bounds:
+        lower, upper = bounds
+        return 0 <= facts[lower]["value"] <= facts[upper]["value"]
+    if key == EQUINOR:
+        return 0 <= facts["da"]["value"] <= facts["da_with_impairment"]["value"] <= facts["da_with_impairment_and_writeoffs"]["value"]
     if key == BUD:
         return 0 < facts["da"]["value"] <= facts["da_with_impairment"]["value"]
     if key == (1730168, "0001730168-25-000121"):
