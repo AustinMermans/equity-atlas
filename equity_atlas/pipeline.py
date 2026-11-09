@@ -234,15 +234,15 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual depreciation and amortization for {selected['end']}: {exc}")
                         history[-1]=separate_partial_da(history[-1],depreciation_rule_key(cik, selected_filing))
-                if selected_filing and "da" not in history[-1]["facts"]:
-                    reason=depreciation_gap(cik,selected_filing)
-                    if reason:
-                        history[-1]={**history[-1],"depreciation_gap":reason}
                 if selected_filing and exhibit_supported(cik, selected_filing):
                     try:
                         history[-1]=enrich_exhibit(cache,cik,selected_filing,history[-1],submissions,obj,meta)
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual earnings exhibit for {selected['end']}: {exc}")
+                if selected_filing and "da" not in history[-1]["facts"]:
+                    reason=depreciation_gap(cik,selected_filing)
+                    if reason:
+                        history[-1]={**history[-1],"depreciation_gap":reason}
                 if selected_filing and notes_for(cik, selected_filing):
                     try:
                         history[-1] = enrich_notes(cache, obj, meta, cik, selected_filing, history[-1])

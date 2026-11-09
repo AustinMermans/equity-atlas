@@ -165,6 +165,7 @@ ANNUAL_NOTES = {
     "BMY": {"other_income_expense_note": (674, (1891, -1129, -1093, -586, 563, 434, 356, 351, -280, 147, 9, 11))},
     "MRK": {"other_income_expense_note": (151, (-343, 1357, 323, -368, -615, -203))},
     "PFE": {"other_income_expense_note": (6724, (-603, 2671, 67, -192, -678, 1057, 4940, 0, -538))},
+    "CSCO": {"amortization_purchased_intangibles_with_impairment": (1863, (947, 916))},
 }
 for symbol, fields in ANNUAL_NOTES.items():
     period = rows[symbol]["statement"]
@@ -178,7 +179,7 @@ for symbol, fields in ANNUAL_NOTES.items():
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
     "ADBE": ("USD", {"da": 546, "da_with_accretion": 818}),
-    "APP": ("USD", {"da_with_writeoffs": 194.778, "da_ppe_and_finance_lease": 25.7, "amortization": 97.404}),
+    "APP": ("USD", {"da": 123.104, "da_with_writeoffs": 194.778, "da_ppe_and_finance_lease": 25.7, "amortization": 97.404}),
     "DUK": ("USD", {"da_with_accretion": 7704, "da_excluding_nuclear_fuel": 6324, "retirement_accretion": 474}),
     "EQNR": ("USD", {"da": 9838, "da_with_impairment": 12318, "da_with_impairment_and_writeoffs": 12473}),
     "GD": ("USD", {"da": 924}),
@@ -189,8 +190,10 @@ DEPRECIATION = {
     "UBER": ("USD", {"da": 719, "da_including_nonoperating": 747}),
     "UL": ("EUR", {"da": 1310, "da_with_impairment": 1353, "asset_impairment": 43}),
     "XOM": ("USD", {"da_with_impairment": 25993}),
-    "AMGN": ("USD", {"da_with_other": 5167}),
-    "AMZN": ("USD", {"da_with_other": 65756}),
+    "AMGN": ("USD", {"da": 5043, "da_with_other": 5167, "da_including_operating_rou": 5167,
+                     "da_ppe": 763, "da_ppe_and_rou": 887}),
+    "AMZN": ("USD", {"da": 42677, "da_with_other": 65756, "da_ppe_and_finance_lease": 41860,
+                     "amortization": 817, "amortization_finance_rou": 3284}),
     "BABA": ("CNY", {"da": 45014, "da_ppe": 34963, "amortization": 10051, "ppe_da_with_impairment_and_lease": 37067}),
     "CRM": ("USD", {"amortization_purchased_intangibles": 1687, "da_ppe": 1200, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
     "NVO": ("DKK", {"da": 14666, "da_with_impairment": 21982, "asset_impairment": 7316}),
@@ -230,11 +233,12 @@ DEPRECIATION = {
     "RIO": ("USD", {"da": 6577}),
     "SAP": ("EUR", {"da": 1311}),
     "SHEL": ("USD", {"da": 25299}),
-    "SNY": ("EUR", {"da_with_impairment": 5678}),
-    "SO": ("USD", {"da_with_accretion": 6030, "da_excluding_nuclear_fuel": 5501}),
+    "SNY": ("EUR", {"da_with_impairment": 5678, "amortization": 1776,
+                    "impairment_intangible_net": 2241, "impairment_ppe_net": 68}),
+    "SO": ("USD", {"da_with_accretion": 6030, "da_excluding_nuclear_fuel": 5501, "retirement_accretion": 393}),
     "SPOT": ("EUR", {"da": 102}),
     "TMO": ("USD", {"da": 2780}),
-    "TSLA": ("USD", {"da_with_impairment": 6148}),
+    "TSLA": ("USD", {"da_with_impairment": 6148, "da_ppe": 5030, "amortization_finance_rou": 118}),
     "TSM": ("TWD", {"da": 688096.4}),
     "TTE": ("USD", {"da_with_impairment": 13847}),
     "TXN": ("USD", {"da": 1999}),
@@ -250,7 +254,7 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("AMGN", "AMZN", "APP", "CRM", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
+for symbol in ("CRM", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")

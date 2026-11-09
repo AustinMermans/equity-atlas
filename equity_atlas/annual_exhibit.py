@@ -9,6 +9,8 @@ from .fetch import SEC
 from .rendered_filing import ENDPOINT, parse_result, scaled
 
 ADP = 8670
+AMGEN = 318154
+AMGEN_REVIEWED_LEASES = "0000318154-26-000010"
 SALESFORCE = 1108524
 TAG = "disclosed:AnnualEarningsExhibit"
 OPERATING_TAG = "derived:OperatingProfitIncludingClientFunds"
@@ -32,6 +34,15 @@ PROFILES = {
             "interest_expense_total_exhibit": "Total interest expense",
         },
     ),
+    AMGEN: (
+        "GAAP Net Income Depreciation and amortization Interest expense Provision EBITDA", "Twelve months ended", {
+            "gaap_net": "GAAP Net Income",
+            "interest_net": "Interest expense, net",
+            "income_tax": "Provision for income taxes",
+            "da_including_operating_rou": "Depreciation and amortization",
+            "ebitda_exhibit": "EBITDA (a)",
+        },
+    ),
     SALESFORCE: (
         "GAAP income from operations amortization of purchased intangibles", "Fiscal Year Ended", {
             "gaap_ebit": "GAAP income from operations",
@@ -43,6 +54,7 @@ PROFILES = {
 
 PINNED = {
     (ADP, "0000008670-26-000030"): "0000008670-26-000025",
+    (AMGEN, AMGEN_REVIEWED_LEASES): "0000318154-26-000003",
     (SALESFORCE, "0001108524-26-000060"): "0001108524-26-000056",
 }
 
@@ -130,7 +142,11 @@ def exhibit_facts(cik, report, period, evidence):
         raise ValueError("Reviewed earnings exhibit accession changed")
 
     facts = period["facts"]
-    anchor_keys = ("pretax", "interest", "corporate_interest_income_filed", "nonoperating_income_net") if cik == ADP else ("ebit", "net")
+    anchor_keys = {
+        ADP: ("pretax", "interest", "corporate_interest_income_filed", "nonoperating_income_net"),
+        AMGEN: ("net", "interest", "tax", "da_with_other", "da_ppe", "da_ppe_and_rou", "amortization"),
+        SALESFORCE: ("ebit", "net"),
+    }[cik]
     if any((facts[key]["accession"], facts[key]["start"], facts[key]["unit"], facts[key]["url"]) !=
            (report["accession"], period["start"], "USD", report["url"]) for key in anchor_keys):
         raise ValueError("Exhibit anchors must match the selected consolidated annual filing")
@@ -146,6 +162,13 @@ def exhibit_facts(cik, report, period, evidence):
                 values["corporate_interest_income_total"] or any(value < 0 for value in values.values())):
             raise ValueError("Client-funds interest split does not reconcile to filed interest")
         fields = fields - {"corporate_interest_income_total", "interest_expense_total_exhibit"}
+    elif cik == AMGEN:
+        anchors = dict(zip(("gaap_net", "interest_net", "income_tax", "da_including_operating_rou"), anchor_keys[:4], strict=True))
+        if (any(values[field] != facts[key]["value"] for field, key in anchors.items()) or
+                sum(values[field] for field in anchors) != values["ebitda_exhibit"] or
+                not 0 <= facts["da_ppe"]["value"] <= facts["da_ppe_and_rou"]["value"] <= values["da_including_operating_rou"]):
+            raise ValueError("Amgen EBITDA exhibit does not reconcile to the 10-K")
+        fields = ("da_including_operating_rou",)
     else:
         if ((facts["ebit"]["value"], facts["net"]["value"]) != (values["gaap_ebit"], values["gaap_net"]) or
                 not 0 <= values["amortization_purchased_intangibles"] <= facts["da_with_rou_and_impairment"]["value"]):
@@ -162,6 +185,18 @@ def exhibit_facts(cik, report, period, evidence):
     }
     if cik == ADP:
         result["ebit"] = adp_operating_fact({**facts, **result})
+    if cik == AMGEN and report["accession"] == AMGEN_REVIEWED_LEASES:
+        # Note 14 confirms that the lease assets in the depreciation note are all operating leases.
+        total = result["da_including_operating_rou"]
+        ppe = facts["da_ppe"]
+        ppe_and_rou = facts["da_ppe_and_rou"]
+        intangible = total["value"] - ppe_and_rou["value"]
+        if abs(intangible - facts["amortization"]["value"]) > 50_000_000:
+            raise ValueError("Implied intangible amortization differs from the rounded 10-K disclosure")
+        parts = [{**fact, "sign": sign, "line": fact["locator"], "table_url": fact["url"]}
+                 for fact, sign in ((total, 1), (ppe_and_rou, -1), (ppe, 1))]
+        result["da"] = {**total, "value": intangible + ppe["value"], "components": parts,
+                        "locator": "Filed D&A excluding operating lease asset amortization"}
     return result
 
 

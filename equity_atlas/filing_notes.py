@@ -1,4 +1,4 @@
-"""Reconcile signed annual note lines to the same accession's face-statement fact."""
+"""Reconcile annual note totals and components to facts from the same accession."""
 
 from dataclasses import dataclass
 from datetime import date
@@ -23,8 +23,10 @@ class Note:
     total: str
     lines: tuple[str, ...]
     scale: int = 1_000_000
-    year_only: bool = False
+    date_format: str = "Year Ended {month} {day}, {year}"
     document: str | None = None
+    title_phrase: str | None = None
+    anchor_line: str | None = None
 
 
 PROFILES = {
@@ -63,7 +65,17 @@ PROFILES = {
             OTHER_NONOPERATING, "", (
                 "Interest income", "Interest expense", "Exchange losses", "Income from investments in equity securities, net (1)",
                 "Net periodic defined benefit plan (credit) cost other than service cost", "Other, net",
-            ), year_only=True,
+            ), date_format="{year}",
+        ),
+    },
+    (858877, "10-K"): {
+        "amortization_purchased_intangibles_with_impairment": Note(
+            "Note 5 · Amortization of purchased intangible assets, including impairment",
+            "Cost of sales Operating expenses amortization of purchased intangible assets",
+            "us-gaap:AmortizationOfIntangibleAssets", "Total", ("Cost of sales", "Operating expenses"),
+            date_format="{month} {day}, {year}",
+            title_phrase="amortization of purchased intangible assets, including impairment charges",
+            anchor_line="Operating expenses",
         ),
     },
     (78003, "10-K"): {
@@ -83,6 +95,7 @@ PINNED = {
     (14272, "0000014272-26-000004"),
     (310158, "0000310158-26-000063"),
     (78003, "0000078003-26-000026"),
+    (858877, "0000858877-26-000132"),
 }
 
 
@@ -132,11 +145,12 @@ def note_components(cache, cik, report, note, anchor):
     if not re.fullmatch(r"[0-9a-f]{16}", digest):
         raise ValueError("Missing note document checksum")
     end = date.fromisoformat(report["end"])
-    year = str(end.year) if note.year_only else f"Year Ended {end:%B} {end.day}, {end.year}"
+    year = note.date_format.format(month=end.strftime("%B"), day=end.day, year=end.year)
     matches = []
     for table in entry["tables"]:
         if (table["source"] != "document table" or table.get("url") != url or
-                table["columns"].count(year) != 1):
+                table["columns"].count(year) != 1 or
+                (note.title_phrase and note.title_phrase not in (table.get("title") or "").lower())):
             continue
         index = table["columns"].index(year)
         try:
@@ -144,13 +158,15 @@ def note_components(cache, cik, report, note, anchor):
             amounts = [amount_in_note(table["rows"], label, index, note.scale) for label in note.lines]
         except ValueError:
             continue
-        if sum(amounts) == total == -anchor:
-            matches.append(amounts)
+        anchored = amounts[note.lines.index(note.anchor_line)] if note.anchor_line else -total
+        if sum(amounts) == total and anchored == anchor:
+            matches.append((total, amounts))
     if len(matches) != 1:
         raise ValueError(f"Missing unique reconciled full-year table for {note.heading}")
+    total, amounts = matches[0]
     parts = [{"line": label, "value": abs(value), "sign": -1 if value < 0 else 1, "table_url": url}
-             for label, value in zip(note.lines, matches[0], strict=True)]
-    return {"value": -anchor, "table_url": url, "table_sha256_16": digest, "sha256": receipt["sha256"],
+             for label, value in zip(note.lines, amounts, strict=True)]
+    return {"value": total, "table_url": url, "table_sha256_16": digest, "sha256": receipt["sha256"],
             "components": parts}
 
 
@@ -178,6 +194,12 @@ def valid_note(period, report, cik, field, fact):
         return False
     parts = fact.get("components", [])
     url = note_url(cik, report, note)
+    if (tuple(part["line"] for part in parts) != note.lines or
+            any(part["table_url"] != url or type(part["value"]) is not int or part["value"] < 0 or
+                part["sign"] not in (-1, 1) for part in parts)):
+        return False
+    amounts = {part["line"]: part["sign"] * part["value"] for part in parts}
+    anchor = amounts[note.anchor_line] if note.anchor_line else -fact["value"]
     return (
         (period["period_kind"], period["filing"], period["end"], period["currency"]) ==
         ("annual", report["accession"], report["end"], "USD") and
@@ -186,8 +208,6 @@ def valid_note(period, report, cik, field, fact):
         fact["source"] == ENDPOINT and fact["table_url"] == url and fact["locator"] == note.heading and
         bool(re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", ""))) and
         all(re.fullmatch(r"[0-9a-f]{64}", fact.get(k, "")) for k in ("sha256", "anchor_sha256")) and
-        fact["anchor_tag"] == note.anchor and type(fact["anchor_value"]) is int and fact["value"] == -fact["anchor_value"] and
-        tuple(part["line"] for part in parts) == note.lines and
-        all(part["table_url"] == url and type(part["value"]) is int and part["value"] >= 0 and part["sign"] in (-1, 1)
-            for part in parts) and sum(part["sign"] * part["value"] for part in parts) == fact["value"]
+        fact["anchor_tag"] == note.anchor and type(fact["anchor_value"]) is int and
+        sum(amounts.values()) == fact["value"] and fact["anchor_value"] == anchor
     )

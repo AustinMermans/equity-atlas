@@ -12,6 +12,12 @@ const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
 const fieldNames={
  other_income_expense_note:'Other income and expense (expense sign)',
  derivative_gain_loss_note:'Derivative gains and losses (expense sign)',
+ amortization_purchased_intangibles_with_impairment:'Purchased intangible amortization and impairment',
+ amortization_finance_rou:'Amortization of finance lease assets',
+ da_ppe_and_rou:'PP&E depreciation and right-of-use asset amortization',
+ da_including_operating_rou:'D&A including operating lease asset amortization',
+ impairment_intangible_net:'Intangible asset impairment net of reversals',
+ impairment_ppe_net:'Owned PP&E impairment net of reversals',
  capex_exploration_capitalized:'Capitalized exploration and evaluation cash spending',
  exploration_evaluation_spending:'Total exploration and evaluation cash spending',
  exploration_evaluation_expensed:'Exploration cash spending included in operating cash flow',
@@ -102,6 +108,7 @@ function detail(r) {
    const titles={
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
+     'disclosed:AnnualEarningsExhibit':'Annual filing and exhibit reconciliation',
    };
    const title=titles[v.tag]||'Filed income statement lines';
    return '<details><summary>'+title+'</summary><ul>'+v.components.map(part=>{

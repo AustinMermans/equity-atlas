@@ -31,6 +31,9 @@ NETFLIX_OTHER_DA = (US_DA, "Depreciation and amortization of property, equipment
 NETFLIX_CONTENT_DA = ("nflx:CostofServicesAmortizationofStreamingContentAssets", "Amortization of content assets")
 AMGEN = (318154, "0000318154-26-000010")
 AMAZON = (1018724, "0001018724-26-000004")
+SANOFI = (1121404, "0001628280-26-008403")
+SOUTHERN = (92122, "0000092122-26-000006")
+TESLA = (1318605, "0001628280-26-003952")
 ALIBABA = (1577552, "0001193125-26-231755")
 SALESFORCE = (1108524, "0001108524-26-000060")
 NOVO = (353278, "0000353278-26-000012")
@@ -365,7 +368,7 @@ CASH_TABLES = {
             ),
         },
     ),
-    (1121404, "0001628280-26-008403"): (  # SNY
+    SANOFI: (
         'Consolidated statements of cash flows', "R8.htm", 1_000_000, {
             "da_with_impairment": (
                 ('sny:AdjustmentsForDepreciationAndAmortisationExpenseAndImpairmentLossReversalOfImpairmentLossOfPropertyPlantAndEquipmentRightOfUseAssetsAndIntangibleAsset', ('Depreciation, amortization and impairment of property, plant and equipment, '
@@ -373,7 +376,7 @@ CASH_TABLES = {
             ),
         },
     ),
-    (92122, "0000092122-26-000006"): (  # SO
+    SOUTHERN: (
         'Consolidated Statements of Cash Flows - Southern', "R6.htm", 1_000_000, {
             "da_with_accretion": (
                 ('us-gaap:DepreciationAmortizationAndAccretionNet', 'Depreciation and amortization, total'),
@@ -396,7 +399,7 @@ CASH_TABLES = {
             ),
         },
     ),
-    (1318605, "0001628280-26-003952"): (  # TSLA
+    TESLA: (
         'Consolidated Statements of Cash Flows', "R9.htm", 1_000_000, {
             "da_with_impairment": (
                 ('tsla:DepreciationAmortizationAndImpairment', 'Depreciation, amortization and impairment'),
@@ -465,20 +468,49 @@ INTANGIBLE_IMPAIRMENT = (
 PPE_IMPAIRMENT = ("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlantAndEquipment", "Impairment of property, plant and equipment")
 
 # Note lines are exact consolidated Company Facts values for the same filing.
+APP_PPE = ("us-gaap:Depreciation", "Note 5 · Continuing PP&E depreciation, including finance leases (rounded)")
+APP_INTANGIBLES = (US_AMORTIZATION, "Note 7 · Continuing intangible amortization")
+AMAZON_PPE = ("us-gaap:Depreciation", "Note 10 · Consolidated PP&E D&A, including finance leases")
+AMAZON_INTANGIBLES = (US_AMORTIZATION, "Note 5 · Acquired intangible amortization, excluding video content")
+FINANCE_LEASE_DA = ("us-gaap:FinanceLeaseRightOfUseAssetAmortization", "Leases note · Finance lease asset amortization")
+RETIREMENT_ACCRETION = ("us-gaap:AssetRetirementObligationAccretionExpense", "Asset retirement obligations note · Accretion expense")
+
 NOTES = {
     ADOBE: {
         "da": (("us-gaap:OtherDepreciationAndAmortization", "Property and equipment note · Depreciation and amortization"),
                (US_AMORTIZATION, "Goodwill and other intangibles note · Amortization of other intangibles")),
     },
     APPLOVIN: {
-        "da_ppe_and_finance_lease": ((DEPRECIATION[0], "Property and equipment note · Depreciation including finance leases"),),
-        "amortization": ((US_AMORTIZATION, "Goodwill and intangible assets note · Amortization expense"),),
+        "da": (APP_PPE, APP_INTANGIBLES),
+        "da_ppe_and_finance_lease": (APP_PPE,),
+        "amortization": (APP_INTANGIBLES,),
+    },
+    AMGEN: {
+        "da_ppe": (("us-gaap:Depreciation", "Note 12 · PP&E depreciation and amortization"),),
+        "da_ppe_and_rou": (("us-gaap:DepreciationAndAmortization", "Note 2 · Depreciation and right-of-use asset amortization"),),
+    },
+    AMAZON: {
+        "da": (AMAZON_PPE, AMAZON_INTANGIBLES),
+        "da_ppe_and_finance_lease": (AMAZON_PPE,),
+        "amortization": (AMAZON_INTANGIBLES,),
+        "amortization_finance_rou": (FINANCE_LEASE_DA,),
+    },
+    SANOFI: {
+        "amortization": (("ifrs-full:AmortisationIntangibleAssetsOtherThanGoodwill", "Income statement · Separately presented intangible amortization"),),
+        "impairment_intangible_net": (("ifrs-full:ImpairmentLossRecognisedInProfitOrLossIntangibleAssetsOtherThanGoodwill",
+                                      "Note D.4 · Intangible impairment net of reversals"),),
+        "impairment_ppe_net": (("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlantAndEquipment",
+                                "Note D.3 · Owned PP&E impairment net of reversals"),),
+    },
+    SOUTHERN: {"retirement_accretion": (RETIREMENT_ACCRETION,)},
+    TESLA: {
+        "da_ppe": (("us-gaap:Depreciation", "Note 6 · PP&E depreciation (rounded)"),),
+        "amortization_finance_rou": (FINANCE_LEASE_DA,),
     },
     DUKE: {
         "da_excluding_nuclear_fuel": (("us-gaap:CostDepreciationAmortizationAndDepletion",
                                        "Consolidated statement of operations · Depreciation and amortization"),),
-        "retirement_accretion": (("us-gaap:AssetRetirementObligationAccretionExpense",
-                                  "Asset retirement obligations note · Accretion expense"),),
+        "retirement_accretion": (RETIREMENT_ACCRETION,),
     },
     EQUINOR: {
         "da": ((IFRS_DA, "Operating segments note · Consolidated depreciation and amortisation"),),
@@ -559,18 +591,18 @@ PDF_FIELDS = {
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
 GAPS = {
-    APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. The asset notes show separate depreciation and amortization amounts.",
+    APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. Continuing asset-note amounts are required for the add-back.",
+    AMAZON: "The cash-flow adjustment includes content and operating lease items. Separate PP&E and acquired intangible amounts are required for the add-back.",
     DUKE: "The cash-flow adjustment includes accretion and nuclear fuel amortization. The income statement and asset-retirement note show narrower amounts.",
     EXXON: "The cash-flow line includes impairments. The filing describes impairments across several expense lines without separately identifying an exact depreciation and depletion subtotal.",
-    AMGEN: "The cash-flow adjustment includes other items. The asset notes must supply a consistent depreciation and amortization subtotal.",
-    AMAZON: "The cash-flow adjustment includes content and operating lease items. Reconcile those scopes with the related investments before using a D&A add-back.",
+    AMGEN: "The cash-flow line includes operating lease amortization. A matching annual exhibit and reviewed lease scope are required for the add-back.",
     SALESFORCE: "The cash-flow adjustment includes amortization and impairment of right-of-use assets. Fixed-asset depreciation and contract-acquisition amortization are shown separately.",
     CISCO: "The cash-flow adjustment includes other items. The property and equipment note covers only those assets. Purchased intangible amortization has a separate disclosure scope.",
     BUD: "The cash-flow adjustment includes impairment. The pure depreciation and amortization amounts require the audited asset notes.",
     (1652044, "0001652044-26-000018"): "The cash-flow statement separately reports property and equipment depreciation. A consolidated intangible-amortization amount needs its own source.",
-    (1121404, "0001628280-26-008403"): "The cash-flow adjustment includes impairment across several asset classes. Separate the continuing operations depreciation and amortization from those charges.",
-    (92122, "0000092122-26-000006"): "The cash-flow adjustment uses a broader concept than the income-statement expense. Reconcile accretion and the nuclear fuel treatment before using the total.",
-    (1318605, "0001628280-26-003952"): "The cash-flow adjustment includes impairment. The property and equipment note discloses depreciation separately, while the remaining amount needs to be reconciled.",
+    SANOFI: "The cash-flow adjustment includes impairment across several asset classes. Separate the continuing operations depreciation and amortization from those charges.",
+    SOUTHERN: "The cash-flow adjustment uses a broader concept than the income-statement expense. Reconcile accretion and the nuclear fuel treatment before using the total.",
+    TESLA: "The cash-flow adjustment includes impairment. The property and equipment note discloses depreciation separately, while the remaining amount needs to be reconciled.",
     (879764, "0001104659-26-035876"): "The cash-flow adjustment includes impairments of multiple asset classes. Separate the depreciation, depletion and amortization from those charges.",
 }
 
@@ -796,6 +828,10 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
 
 DA_SCOPE_BOUNDS = {
     ADOBE: ("da", "da_with_accretion"),
+    APPLOVIN: ("da", "da_with_writeoffs"),
+    AMGEN: ("da_ppe", "da_ppe_and_rou"),
+    AMAZON: ("da", "da_with_other"),
+    TESLA: ("da_ppe", "da_with_impairment"),
     DUKE: ("da_excluding_nuclear_fuel", "da_with_accretion"),
     MODERNA: ("da_ppe", "da"),
     UBER: ("da", "da_including_nonoperating"),
@@ -808,9 +844,13 @@ def reconciles(key, facts):
         return False
     if sum((-1 if field.startswith("-") else 1) * facts[field.removeprefix("-")]["value"] for field in check):
         return False
-    if key == ALIBABA:
-        return (facts["da"]["components"][0]["value"] == facts["da_ppe"]["value"] and
-                facts["da"]["components"][1]["value"] == facts["amortization"]["value"])
+    if key in {ALIBABA, APPLOVIN, AMAZON}:
+        ppe = "da_ppe" if key == ALIBABA else "da_ppe_and_finance_lease"
+        if (facts["da"]["components"][0]["value"] != facts[ppe]["value"] or
+                facts["da"]["components"][1]["value"] != facts["amortization"]["value"]):
+            return False
+        if key == AMAZON and not 0 <= facts["amortization_finance_rou"]["value"] <= facts[ppe]["value"]:
+            return False
     bounds = DA_SCOPE_BOUNDS.get(key)
     if bounds:
         lower, upper = bounds
