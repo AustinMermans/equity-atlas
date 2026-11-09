@@ -83,6 +83,23 @@ class FinanceTests(unittest.TestCase):
         self.assertIsNone(y["bridge"])
         self.assertIn("unresolved material claim",y["ev_exclusion"])
 
+    def test_mixed_scope_capex_blocks_automatic_cash_flow_models(self):
+        current=stmt(2025,net=12,book=100,sales=150,ebit=15,cash=40,debt=60,cfo=18,capex=5,da=4)
+        x=case("operating",[current])
+        models={m["method"]:m for m in fit(x,[])["decisions"]}
+        self.assertEqual(models["fcff"]["status"],"estimated")
+
+        current["capital_investment_gap"]="The reported capex includes discontinued operations."
+        models={m["method"]:m for m in fit(x,[])["decisions"]}
+        for method in ("fcff","fcfe"):
+            self.assertEqual(models[method]["status"],"blocked")
+            self.assertEqual(models[method]["reason"],current["capital_investment_gap"])
+
+        explicit={"source":"https://example.com/filing","currency":"USD","period":current["end"],
+                  "published":"2026-02-01","flows":[8]*5,"terminal_net":12,"terminal_roe":.15}
+        models={m["method"]:m for m in fit(x,[],{"fcfe":explicit})["decisions"]}
+        self.assertEqual(models["fcfe"]["status"],"estimated")
+
     def test_known_annual_gap_blocks_observed_and_statement_dependent_models(self):
         audit={"latest_annual":{"end":"2026-06-30"},"annual_route":"latest_filing_gap"}
         old=stmt(2025,net=12,book=100,sales=150,ebit=15,cash=40,debt=60)

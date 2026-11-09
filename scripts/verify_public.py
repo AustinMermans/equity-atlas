@@ -9,7 +9,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
-from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, CAPEX_TAG, PINNED as CAPEX_PINNED,
+from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
+                                INTANGIBLES, CAPEX_TAG, PINNED as CAPEX_PINNED,
                                 required_additional_fields, valid_capex_components)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
@@ -291,6 +292,16 @@ for row in rows:
             if cik == 1046179 and period.get("route") == WORKBOOK_ROUTE:
                 if period["facts"].get("capex", {}).get("tag") != WORKBOOK_CAPEX_TAG:
                     raise SystemExit("Missing TSMC workbook cash-investment total")
+            if report and (cik, report["accession"]) == APPLOVIN:
+                facts = period["facts"]
+                intangible, = (p["value"] for p in facts["capex"]["components"] if p["tag"] == INTANGIBLES)
+                continuing = facts["capex_intangibles_continuing"]
+                discontinued = facts["capex_intangibles_discontinued"]
+                if (period.get("capital_investment_gap") != APP_INVESTMENT_GAP or
+                        continuing["value"] + discontinued["value"] != intangible or
+                        continuing["sha256"] != discontinued["sha256"] or
+                        discontinued["sha256"] != facts["capex"]["components"][0]["sha256"]):
+                    raise SystemExit("AppLovin continuing and discontinued intangible cash purchases do not reconcile")
             capex_profiles += profiled
         if "annual_note_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]

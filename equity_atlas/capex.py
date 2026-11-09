@@ -15,7 +15,14 @@ IFRS_INTANGIBLES = "ifrs-full:PurchaseOfIntangibleAssetsClassifiedAsInvestingAct
 COMBINED = "ifrs-full:PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets"
 TURNAROUND = "us-gaap:PaymentsForCapitalImprovements"
 CAPEX_TAG = "derived:CashCapitalInvestment"
-ADDITIONAL_FIELDS = {"capex_mixed_outflow", "capex_financing_payment", "capex_reported_total"}
+APPLOVIN = (1751008, "0001751008-26-000010")
+APP_INTANGIBLE_FIELDS = {
+    "capex_intangibles_discontinued": ("disclosed:DiscontinuedIntangiblePurchases", "p. 65 · Note 3 · Acquisition of intangible assets by discontinued operations"),
+    "capex_intangibles_continuing": ("derived:ContinuingIntangiblePurchases", "Consolidated intangible purchases less purchases by discontinued operations"),
+}
+APP_INVESTMENT_GAP = ("Cash investment includes the discontinued Apps business. The 10-K separates intangible purchases "
+                      "by operation and reports PP&E cash purchases on a consolidated basis.")
+ADDITIONAL_FIELDS = {"capex_mixed_outflow", "capex_financing_payment", "capex_reported_total", *APP_INTANGIBLE_FIELDS}
 FINANCING_TAGS = {
     "arm:RepaymentsOfIntangibleAssetObligation",
     "intc:PaymentsToAcquirePropertyPlantAndEquipmentFinancingActivities",
@@ -42,7 +49,7 @@ DIRECT = {
     (8670, "0000008670-26-000030"): (
         (PPE_OTHER, "Capital expenditures"), (INTANGIBLES, "Additions to intangibles"),
     ),
-    (1751008, "0001751008-26-000010"): ((INTANGIBLES, "Purchase of intangible assets"),),
+    APPLOVIN: ((INTANGIBLES, "Purchase of intangible assets"),),
     (59478, "0000059478-26-000013"): ((PPE_OTHER, "Purchases of property and equipment"),),
     (863064, "0001628280-26-009531"): ((COMBINED, "Purchases of property, plant and equipment and intangible assets"),),
     (1000184, "0001104659-26-020058"): ((COMBINED, "Purchase of intangible assets and property, plant, and equipment"),),
@@ -277,7 +284,7 @@ PDFS = {
         "https://d18rn0p25nwr6d.cloudfront.net/CIK-0001559720/52fc9020-faa3-4ed3-b6e3-9a982ecdda93.pdf",
         "38", 1_000_000, 2, 1, "Purchases of property and equipment", "FCF", "in millions",
     ),
-    (1751008, "0001751008-26-000010"): (
+    APPLOVIN: (
         "https://s21.q4cdn.com/165405286/files/doc_financials/2025/ar/d6d59334-570b-453f-8c55-30d0bda96a8e.pdf",
         "39", 1_000, 3, 0, "Purchase of property and equipment", "Free Cash Flow", "in thousands",
     ),
@@ -414,7 +421,8 @@ def pdf_component(cache, key, statement, component):
     raw, receipt = cache.get(url, 8760)
     if receipt["url"] != url or statement["currency"] != "USD":
         raise ValueError("FCF reconciliation source or currency mismatch")
-    matches = [p for p in pdf_pages(raw) if p.rstrip().endswith(footer) and label in p and fcf_label in p
+    pages = pdf_pages(raw)
+    matches = [p for p in pages if p.rstrip().endswith(footer) and label in p and fcf_label in p
                and scale_label in p and statement["end"][:4] in p and "reconciliation" in p.lower()]
     if len(matches) != 1:
         raise ValueError("Missing expected FCF reconciliation table")
@@ -422,11 +430,21 @@ def pdf_component(cache, key, statement, component):
     cfo = column(table, "Net cash provided by operating activities", years, column_index=index)
     capex = -column(table, label, years, column_index=index)
     fcf = column(table, fcf_label, years, column_index=index)
-    finance_lease = -column(table, "Principal payments of finance leases", years, column_index=index) if key[0] == 1751008 else 0
+    finance_lease = -column(table, "Principal payments of finance leases", years, column_index=index) if key == APPLOVIN else 0
     if scaled(cfo, scale) != statement["facts"]["cfo"]["value"] or cfo - capex - finance_lease != fcf:
         raise ValueError("FCF reconciliation does not tie to filed operating cash flow")
-    return component("disclosed:CashPurchasesOfPropertyAndEquipment", scaled(capex, scale),
-                     f"p. {footer} · FCF reconciliation · {label}", receipt)
+    ppe = component("disclosed:CashPurchasesOfPropertyAndEquipment", scaled(capex, scale),
+                    f"p. {footer} · FCF reconciliation · {label}", receipt)
+    if key != APPLOVIN:
+        return ppe, {}
+    notes = [p for p in pages if p.rstrip().endswith("65") and "capital expenditures related to discontinued operations" in p
+             and "consolidated statements of cash flows" in p and "(in thousands)" in p
+             and re.search(r"Year Ended December 31,\s+" + statement["end"][:4] + r"\s+", p)]
+    if len(notes) != 1:
+        raise ValueError("Missing filed AppLovin discontinued operations table")
+    value = scaled(column(notes[0], "Acquisition of intangible assets", years), scale)
+    tag, locator = APP_INTANGIBLE_FIELDS["capex_intangibles_discontinued"]
+    return ppe, {"capex_intangibles_discontinued": component(tag, value, locator, receipt)}
 
 
 def enrich_capex(cache, obj, meta, cik, report, statement):
@@ -446,7 +464,8 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
 
     parts, reported = [], {}
     if key in PDFS:
-        parts.append(pdf_component(cache, key, statement, component))
+        ppe, reported = pdf_component(cache, key, statement, component)
+        parts.append(ppe)
     if key in RENDERED:
         parts, reported = rendered_components(cache, obj, key, statement, report, component)
     for tag, label in DIRECT.get(key, ()):
@@ -462,6 +481,15 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     capex = {**parts[0], "value": total, "tag": CAPEX_TAG, "components": parts}
     if len(parts) > 1:
         capex["locator"] = "Sum of " + str(len(parts)) + " reviewed cash investment lines"
+    if key == APPLOVIN:
+        discontinued = reported["capex_intangibles_discontinued"]
+        tag, locator = APP_INTANGIBLE_FIELDS["capex_intangibles_continuing"]
+        intangible, = (part["value"] for part in parts if part["tag"] == INTANGIBLES)
+        value = intangible - discontinued["value"]
+        reported["capex_intangibles_continuing"] = component(
+            tag, value, locator, {"url": discontinued["source"], "sha256": discontinued["sha256"]},
+        )
+        statement = {**statement, "capital_investment_gap": APP_INVESTMENT_GAP}
     facts = {**statement["facts"], "capex": capex, **reported}
     return {**statement, "facts": facts}
 
@@ -470,6 +498,8 @@ def required_additional_fields(cik, report):
     fields = set(ADDITIONAL_OUTFLOWS.get(rule_key(cik, report), {}))
     if cik in REPORTED_TOTALS:
         fields.add("capex_reported_total")
+    if rule_key(cik, report) == APPLOVIN:
+        fields.update(APP_INTANGIBLE_FIELDS)
     return fields
 
 
@@ -481,6 +511,9 @@ def valid_capex_components(parts, cik, report, field):
         source, footer, _, _, _, label, _, _ = PDFS[key]
         expected.append((source, "disclosed:CashPurchasesOfPropertyAndEquipment",
                          f"p. {footer} · FCF reconciliation · {label}"))
+    if key == APPLOVIN and field in APP_INTANGIBLE_FIELDS:
+        tag, label = APP_INTANGIBLE_FIELDS[field]
+        expected.append((PDFS[key][0], tag, label))
     if key in RENDERED:
         title, filename, _, lines = RENDERED[key]
         pinned_filename = filename if key == (cik, report["accession"]) else None

@@ -18,6 +18,8 @@ const fieldNames={
  da_including_operating_rou:'D&A including operating lease asset amortization',
  impairment_intangible_net:'Intangible asset impairment net of reversals',
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
+ capex_intangibles_discontinued:'Cash intangible purchases by discontinued operations',
+ capex_intangibles_continuing:'Cash intangible purchases by continuing operations',
  capex_exploration_capitalized:'Capitalized exploration and evaluation cash spending',
  exploration_evaluation_spending:'Total exploration and evaluation cash spending',
  exploration_evaluation_expensed:'Exploration cash spending included in operating cash flow',
@@ -125,6 +127,7 @@ function detail(r) {
  const audit=r.edgar?.latest_annual?'<p>Latest annual filing in SEC submissions: <a href="'+safeUrl(r.edgar.latest_annual.url)+'" target="_blank" rel="noopener noreferrer">'+esc(r.edgar.latest_annual.end)+'</a>.</p>':'';
  const operatingGap=st?.operating_profit_gap?'<p>Operating profit pending · '+esc(st.operating_profit_gap)+'</p>':'';
  const depreciationGap=st?.depreciation_gap?'<p>Depreciation and amortization pending · '+esc(st.depreciation_gap)+'</p>':'';
+ const investmentGap=st?.capital_investment_gap?'<p>Continuing cash investment pending · '+esc(st.capital_investment_gap)+'</p>':'';
  const succession=r.edgar?.succession;
  const lineage=succession?'<p><a href="'+safeUrl(succession.url)+'" target="_blank" rel="noopener noreferrer">Registrant succession effective '+esc(succession.effective)+'</a>. Earlier consolidated history retains the predecessor’s filing links.</p>':'';
  const amendmentReviews=(r.edgar?.amendment_reviews||[]).map(x=>'<li><a href="'+safeUrl(x.url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.accession)+'</a> · '+esc(x.scope)+'</li>').join('');
@@ -146,7 +149,7 @@ function detail(r) {
    marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+reconciliation+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+investmentGap+reconciliation+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
    (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();

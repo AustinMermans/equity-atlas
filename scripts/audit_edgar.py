@@ -98,6 +98,8 @@ for symbol, expected in CASH_INVESTMENT.items():
         raise SystemExit(f"{symbol} cash investment: expected {expected}; got {fact}")
     checked += 1
 OTHER_CASH_FLOWS = (
+    ("APP", "capex_intangibles_discontinued", 22_429_000),
+    ("APP", "capex_intangibles_continuing", 5_889_000),
     ("BHP", "capex_ppe", 9_849_000_000),
     ("BHP", "capex_exploration_capitalized", 61_000_000),
     ("BHP", "exploration_evaluation_spending", 408_000_000),

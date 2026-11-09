@@ -265,6 +265,7 @@ def fit(case, peers, override=None):
     re,wacc=RATES[k]
     g=GROWTH_TERMINAL
     results={}
+    investment_gap=(case["statement"] or {}).get("capital_investment_gap")
     def block(method, reason, status="blocked"):
         results[method]={"method":method,"label":NAMES[method],"status":status,"reason":reason}
     def calc(method, function, inputs, reason, has_rate=True):
@@ -413,7 +414,9 @@ def fit(case, peers, override=None):
                  "Gordon economics: justified forward P/E equals payout divided by (required return − growth).")
     if "fcff" not in results:
         bridge=case["bridge"]
-        if bridge is None or sales<=0 or "ebit" not in v or "capex" not in v or "da" not in v or v.get("capex",-1)<0:
+        if investment_gap:
+            block("fcff",investment_gap)
+        elif bridge is None or sales<=0 or "ebit" not in v or "capex" not in v or "da" not in v or v.get("capex",-1)<0:
             block("fcff",case.get("ev_exclusion") or case["statement"].get("operating_profit_gap") or
                   case["statement"].get("depreciation_gap") or
                   "Needs operating profit, sales, D&A, capex and a sourced cash/debt bridge.")
@@ -483,7 +486,9 @@ def fit(case, peers, override=None):
             basis=sales_hist[-3:]
             borrows=[net_debt_cash(x) for x in basis]
             lev=[debt_amount(x)/x["book"] for x in basis if debt_amount(x) is not None and x.get("book",0)>0]
-            if (case["accounting"]!="US GAAP" or k in CYCLE or len(basis)<3 or None in borrows or
+            if investment_gap:
+                block("fcfe",investment_gap)
+            elif (case["accounting"]!="US GAAP" or k in CYCLE or len(basis)<3 or None in borrows or
                 len(lev)<3 or max(lev)-min(lev)>.35 or not 0<=median(lev)<3 or
                 net is None or net<=0 or not terminal_roe or terminal_roe<=g or
                 not all(x.get("sales",0)>0 and "cfo" in x and x.get("capex",-1)>=0 for x in basis)):
