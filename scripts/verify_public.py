@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
-from equity_atlas.edgar import REVIEWED_AMENDMENTS
+from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
@@ -38,11 +38,11 @@ def verify_period(period, row):
     mirror = None
     route = period.get("route")
     interim_copy = None
-    if route in {"issuer_inline", QUARTER_PDF_ROUTE}:
+    resolvers = {"issuer_inline": inline_url, "issuer_instance": issuer_instance_url, QUARTER_PDF_ROUTE: quarter_copy_url}
+    if route in resolvers:
         report = row["edgar"]["latest_interim"]
         cik = int(row["id"].removeprefix("sec:"))
-        resolve = inline_url if route == "issuer_inline" else quarter_copy_url
-        interim_copy = resolve(cik,report)
+        interim_copy = resolvers[route](cik,report)
         if (not interim_copy or period["report"] != report or
                 row["edgar"]["interim_routes"].get(period["period_kind"]) != route):
             raise SystemExit("Public copy does not match the expected SEC interim filing")
@@ -66,7 +66,7 @@ def verify_period(period, row):
                       fact["form"]==report["form"] and fact["tag"].startswith(route + ":") and
                       len(fact["sha256"])==64)
         if interim_copy:
-            locator = fact.get("context_id") if route == "issuer_inline" else fact.get("locator")
+            locator = fact.get("locator") if route == QUARTER_PDF_ROUTE else fact.get("context_id")
             official = (source == interim_copy and url == report["url"] and fact["accession"] == report["accession"]
                         and fact["filed"] == report["filed"] and fact["form"] == report["form"]
                         and bool(locator) and len(fact["sha256"]) == 64)

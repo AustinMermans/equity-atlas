@@ -108,6 +108,23 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(actual["ytd"][0]["facts"]["net"]["start"], "2026-01-01")
         self.assertEqual(actual["quarter"][0]["filing"], report["accession"])
 
+    def test_issuer_instance_validates_registrant_form_and_date(self):
+        raw = b"""<x:xbrl xmlns:x="http://www.xbrl.org/2003/instance" xmlns:dei="http://xbrl.sec.gov/dei/2026">
+          <x:context id="q"><x:entity><x:identifier scheme="http://www.sec.gov/CIK">1</x:identifier></x:entity>
+            <x:period><x:instant>2026-09-30</x:instant></x:period>
+          </x:context>
+          <dei:EntityCentralIndexKey contextRef="q">0000000001</dei:EntityCentralIndexKey>
+          <dei:DocumentType contextRef="q">10-Q</dei:DocumentType>
+          <dei:DocumentPeriodEndDate contextRef="q">2026-09-30</dei:DocumentPeriodEndDate>
+        </x:xbrl>"""
+        report = {"end": "2026-09-30", "form": "10-Q", "accession": "0000000001-26-000001"}
+        self.assertEqual(periods_from_instance(raw, META, report, 1, ("quarter",), verify_header=True),
+                         {"quarter": []})
+        with self.assertRaises(ValueError):
+            periods_from_instance(raw, META, {**report, "form": "10-K"}, 1, ("quarter",), verify_header=True)
+        with self.assertRaises(ValueError):
+            periods_from_instance(raw, META, report, 2, ("quarter",), verify_header=True)
+
     def test_review_is_bound_to_original_and_every_later_amendment(self):
         original = "0000002488-26-000018"
         reviewed = "0000002488-26-000021"

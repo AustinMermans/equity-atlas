@@ -11,7 +11,10 @@ import time
 
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
-from .edgar import amendment_reviews, annual_from_instance, instance_url, periods_from_instance
+from .edgar import (
+    amendment_reviews, annual_from_instance, instance_url, issuer_instance_url,
+    periods_from_instance, periods_from_issuer_instance,
+)
 from .inline import inline_url, periods_from_inline
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
@@ -74,6 +77,7 @@ def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, iss
         except (OSError,ValueError,KeyError,TypeError) as exc:
             issues.append(f"SEC interim archive for {interim['end']}: {exc}")
     for route, url, parse in (
+        ("issuer_instance", issuer_instance_url(cik,interim), periods_from_issuer_instance),
         ("issuer_inline", inline_url(cik,interim), periods_from_inline),
         (QUARTER_PDF_ROUTE, quarter_copy_url(cik,interim), periods_from_10q),
     ):

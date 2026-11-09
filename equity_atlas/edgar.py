@@ -47,6 +47,30 @@ def amendment_reviews(filings, statement, latest):
     return results
 
 
+ISSUER_INSTANCES = {
+    # Linked from NextEra's investor-relations SEC filing archive.
+    (753308, "0000753308-26-000081"): (
+        "https://otp.tools.investis.com/clients/us/nextera_energy_inc/SEC/"
+        "sec-show.aspx?Type=XML&cik=0000753308&FilingId=19864647&SeqId=92"
+    ),
+}
+
+
+def issuer_instance_url(cik, filing):
+    return ISSUER_INSTANCES.get((cik, filing["accession"]))
+
+
+def periods_from_issuer_instance(raw, meta, filing, cik, kinds):
+    expected = issuer_instance_url(cik, filing)
+    if not expected or meta["url"] != expected:
+        raise ValueError("Issuer instance source does not match the SEC accession")
+    periods = periods_from_instance(raw, meta, filing, cik, kinds, verify_header=True)
+    for items in periods.values():
+        for period in items:
+            period["route"] = "issuer_instance"
+    return periods
+
+
 def instance_url(filing):
     doc = PurePosixPath(filing["primary"])
     if doc.suffix.lower() not in {".htm", ".html"}:
@@ -103,7 +127,7 @@ def annual_from_instance(raw, meta, filing, cik):
     return periods_from_instance(raw, meta, filing, cik, ("annual",))["annual"]
 
 
-def periods_from_instance(raw, meta, filing, cik, kinds):
+def periods_from_instance(raw, meta, filing, cik, kinds, *, verify_header=False):
     """Read one instance for the requested consolidated duration windows."""
     if re.search(rb"<!DOCTYPE", raw, flags=re.I):
         raise ValueError("Unexpected DTD in extracted filing")
@@ -125,6 +149,18 @@ def periods_from_instance(raw, meta, filing, cik, kinds):
         raise ValueError("Invalid extracted XBRL XML") from exc
     if root is None or root.tag != XBRL + "xbrl":
         raise ValueError("Expected SEC extracted XBRL instance")
+    if verify_header:
+        period = date.fromisoformat(filing["end"])
+        contexts = {el.get("id") for el in root.findall(XBRL + "context")
+                    if (parsed := _context(el, cik)) and parsed[1] == period}
+        header = {}
+        for node in root:
+            namespace, _, tag = node.tag.removeprefix("{").partition("}")
+            if re.fullmatch(r"https?://xbrl\.sec\.gov/dei/[^/]+", namespace) and node.get("contextRef") in contexts:
+                header.setdefault(tag,set()).add((node.text or "").strip())
+        if (header.get("EntityCentralIndexKey") != {f"{cik:010d}"} or
+                header.get("DocumentType") != {filing["form"]} or header.get("DocumentPeriodEndDate") != {filing["end"]}):
+            raise ValueError("Issuer XBRL header does not match SEC filing metadata")
     return _periods(root, root, namespaces, meta, filing, cik, kinds)
 
 

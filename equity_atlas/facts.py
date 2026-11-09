@@ -12,6 +12,7 @@ TAGS = {
     "net": "NetIncomeLossAvailableToCommonStockholdersBasic ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity ProfitLossAttributableToOwnersOfParent NetIncomeLoss ProfitLoss",
     "net_parent": "ProfitLossAttributableToOwnersOfParent NetIncomeLoss",
     "net_consolidated": "ProfitLoss",
+    "net_nonredeemable_nci": "NetIncomeLossAttributableToNonredeemableNoncontrollingInterest",
     "net_common": "NetIncomeLossAvailableToCommonStockholdersBasic ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity",
     "ebit": "OperatingIncomeLoss ProfitLossFromOperatingActivities",
     "assets": "Assets",
