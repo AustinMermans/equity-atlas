@@ -10,6 +10,7 @@ from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
 from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
+from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
@@ -57,7 +58,7 @@ def verify_period(period, row):
             raise SystemExit("Public copy does not match the expected SEC filing")
     elif row["source"] in COPY_SOURCES.values() and period is row["statement"]:
         raise SystemExit("Missing public 20-F provenance")
-    for fact in period["facts"].values():
+    for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
         official=source.startswith(("https://data.sec.gov/", "https://www.sec.gov/Archives/edgar/"))
@@ -70,6 +71,17 @@ def verify_period(period, row):
             official = (source == interim_copy and url == report["url"] and fact["accession"] == report["accession"]
                         and fact["filed"] == report["filed"] and fact["form"] == report["form"]
                         and bool(locator) and len(fact["sha256"]) == 64)
+        if fact["tag"].startswith("filing_claims:"):
+            report = period.get("report")
+            cik = int(row["id"].removeprefix("sec:"))
+            profile = claim_copy(cik,report) if report else None
+            official = bool(profile and period is row["statement"] and
+                            profile[:3] == (report["form"],period["end"],period["currency"]) and
+                            source == profile[3] and key in profile[4] and fact["tag"] == f"filing_claims:{key}" and
+                            url == report["url"] and period["filing"] == report["accession"] == fact["accession"] and
+                            fact["filed"] == report["filed"] and fact["form"] == report["form"] and
+                            fact["unit"] == period["currency"] and fact["start"] is None and
+                            bool(fact.get("locator")) and len(fact["sha256"]) == 64)
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:

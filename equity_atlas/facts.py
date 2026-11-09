@@ -73,7 +73,8 @@ TAGS = {
     "oci": "OtherComprehensiveIncomeLossNetOfTax OtherComprehensiveIncomeAttributableToOwnersOfParent",
 }
 STOCK = {"assets","liabilities","book","total_equity","preferred","minority","cash","st_investments","debt","debt_current","debt_noncurrent","short_borrow","debt_total","ar","inventory","ap","common_book","preferred_liquidation","shares_outstanding","debt_current_total","cash_due_from_banks","interest_bearing_deposits_at_banks","customer_deposits","loans_net"}
-STOCK.update({"temporary_equity_total","temporary_equity_parent","redeemable_nci","redeemable_nci_redemption"})
+STOCK.update({"temporary_equity_total","temporary_equity_parent","redeemable_nci","redeemable_nci_redemption",
+              "redeemable_nci_cips","redeemable_nci_subco","hybrid_equity"})
 ANNUAL = {"10-K","10-K/A","20-F","20-F/A","40-F","40-F/A","10-KT"}
 INTERIM = {"10-Q","10-Q/A","10-QT","10-QT/A"}
 REGISTRATION = {"S-1","S-1/A","F-1","F-1/A","424B4"}
@@ -183,6 +184,12 @@ def _pick_fields(metrics):
                                  "locator": "Parent equity less preferred carrying value"}
     return start, chosen, sorted(conflicts)
 
+def temporary_equity_fields(values):
+    if "temporary_equity_total" in values:
+        return ["temporary_equity_total"]
+    return [key for key in ("temporary_equity_parent", "redeemable_nci") if key in values]
+
+
 def balance_check(statement):
     """Reconcile reported claims at carrying value without deriving missing claims."""
     facts = statement["facts"]
@@ -190,15 +197,16 @@ def balance_check(statement):
     if not set(base) <= facts.keys():
         return None
     v = {key: fact["value"] for key, fact in facts.items()}
-    temporary = ["temporary_equity_total"] if "temporary_equity_total" in v else [
-        key for key in ("temporary_equity_parent", "redeemable_nci") if key in v
-    ]
+    temporary = temporary_equity_fields(v)
     residual = v["assets"] - v["liabilities"] - v["total_equity"]
     net = residual - sum(v[key] for key in temporary)
-    return {
+    result = {
         "permanent_equity_residual": residual, "temporary_equity_fields": temporary,
         "unexplained_residual": net, "reconciled": abs(net) <= 1,
     }
+    if {"book", "minority"} <= v.keys():
+        result["unexplained_equity_attribution"] = v["total_equity"] - v["book"] - v["minority"] - v.get("hybrid_equity",0)
+    return result
 
 
 def _assemble(groups, filings=None, kind="annual"):

@@ -1,9 +1,9 @@
 """CFA valuation primitives and deterministic, evidence-gated screen."""
 from datetime import date
 from statistics import median
-from .facts import values
+from .facts import balance_check, temporary_equity_fields, values
 
-VERSION = "2026.11-v1"
+VERSION = "2026.11-v2"
 FINANCIAL = {"bank","insurer","broker"}
 CYCLE = {"commodity","cyclical"}
 CORE = {"operating","cyclical","commodity","utility"}
@@ -165,14 +165,16 @@ def observed(case):
     net=common_earnings(v,case["net_tag"])
     # No silent zero for debt or cash. Equity delta can measure NCI when both are disclosed.
     debt=debt_amount(v)
+    hybrid=v.get("hybrid_equity",0)
     minority=v.get("minority")
     if minority is None and {"book","total_equity"} <= v.keys():
-        minority=max(0,v["total_equity"]-v["book"])
-    # Screen bridge uses book debt and cash, assumes unreported NCI/preferred are zero;
-    # explicit preferred/NCI included when present. Include short-term investments only when tagged.
+        minority=max(0,v["total_equity"]-v["book"]-hybrid)
+    # Separately presented claims enter the enterprise-to-common bridge at carrying value.
+    temporary=sum(v[k] for k in temporary_equity_fields(v))
+    claims=(minority or 0)+v.get("preferred",0)+hybrid+temporary
     bridge=None
     if not case.get("ev_exclusion") and case["kind"] in CORE and debt is not None and debt>=0 and v.get("cash",-1)>=0:
-        bridge=v["cash"]+v.get("st_investments",0)-debt-(minority or 0)-v.get("preferred",0)
+        bridge=v["cash"]+v.get("st_investments",0)-debt-claims
     ev=equity-bridge if bridge is not None else None
     ratios={}
     for metric,numerator,den in [
@@ -188,9 +190,23 @@ def prepare(issuer, history, fx, day):
     curr=stmt["currency"] if stmt else None
     h=consecutive(history,curr)
     v=values(stmt) if stmt else {}
-    fresh=bool(stmt and (day-date.fromisoformat(stmt["end"])).days <= STALENESS_DAYS)
+    audit=issuer.get("edgar",{})
+    expected=audit.get("latest_annual")
+    annual_gap=None
+    if stmt and expected and stmt["end"] < expected["end"]:
+        annual_gap=f"The latest filed fiscal year ({expected['end']}) is unavailable."
+    elif stmt and expected and audit.get("annual_route")=="amendment_pending" and stmt["end"]==expected["end"]:
+        annual_gap="A same-period amended annual filing still needs review."
+    fresh=bool(stmt and not annual_gap and 0 <= (day-date.fromisoformat(stmt["end"])).days <= STALENESS_DAYS)
     rates=fx.get(curr)
+    ev_exclusion=issuer.get("ev_exclusion")
+    balance=balance_check(stmt) if stmt else None
+    if balance and not ev_exclusion:
+        tolerance=max(1_000_000,abs(v["assets"])*.0001)
+        if max(abs(balance["unexplained_residual"]),abs(balance.get("unexplained_equity_attribution",0))) > tolerance:
+            ev_exclusion="The filed balance sheet has an unresolved material claim."
     case={**issuer,"statement":stmt,"history":h,"latest":v,"fresh":fresh,
+          "annual_gap":annual_gap,"ev_exclusion":ev_exclusion,
           "fx":rates["rate"] if rates else None,"fx_observation":rates,
           "cycle":cycle_read(h,issuer["kind"]),
           "net_tag":(stmt or {}).get("facts",{}).get("net",{}).get("tag","")}
@@ -274,6 +290,8 @@ def fit(case, peers, override=None):
             block(method,"Method outside this business archetype’s default model set.","not_applicable")
         elif not case["statement"]:
             block(method,"No coherent annual statement available.")
+        elif case.get("annual_gap"):
+            block(method,case["annual_gap"])
         elif not case["fresh"]:
             block(method,"Annual statement older than policy window.")
         elif fx is None:

@@ -16,6 +16,7 @@ from .edgar import (
     periods_from_instance, periods_from_issuer_instance,
 )
 from .inline import inline_url, periods_from_inline
+from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
@@ -174,6 +175,15 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                                 annual_receipt=mirror_meta
                             except (OSError,ValueError,KeyError,TypeError) as mirror_exc:
                                 issues.append(f"Public 20-F copy extraction for {annual['end']}: {mirror_exc}")
+                selected=history[-1] if history else None
+                claim_filing=filings.get(selected["filing"]) if selected else None
+                claim_profile=claim_copy(cik,claim_filing) if claim_filing else None
+                if claim_profile:
+                    try:
+                        blob, receipt=cache.get(claim_profile[3],8760)
+                        history[-1]=add_claims(blob,receipt,claim_filing,cik,selected)
+                    except (OSError,ValueError,KeyError,TypeError) as exc:
+                        issues.append(f"Annual equity claims for {selected['end']}: {exc}")
                 annual_anchor=annual or predecessor_annual
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
@@ -379,7 +389,7 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
                    and classify(r["symbol"],0)[0]=="unknown"})
     sec_details=parallel(to_sic,lambda cik:cache.json(sec_meta(cik),168))
     work=[(r["cik"],r["lei"]) for r in ranked if r["cik"] or r["lei"]]
-    harvested=parallel(work,lambda x:source_history(cache,*x,day))
+    harvested=parallel(work,lambda x:source_history(cache,*x,day,audit_edgar=True))
     cases=[]
     for r in ranked:
         sym=r["symbol"]
@@ -410,7 +420,8 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
                       "id":f"sec:{cik:010d}" if cik else f"lei:{lei}" if lei else f"unresolved:{sym}",
                       "accounting":accounting(h),"source":outcome["source"],"entity_name":outcome["entity_name"],
                       "ev_exclusion":"Captive finance needs a separated operating/debt bridge." if sym in {"TM","F","GM"} else None,
-                      "source_receipt":outcome["receipt"],"as_of":str(day),"issues":issues},h,fx,day)
+                      "source_receipt":outcome["receipt"],"as_of":str(day),"issues":issues,
+                      "edgar":outcome.get("edgar",{}),"balance_check":balance_check(h[-1]) if h else None},h,fx,day)
         cases.append(case)
     # Same-group peer index avoids an all-universe search for every valuation.
     buckets={}

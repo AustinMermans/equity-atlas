@@ -62,6 +62,32 @@ class FinanceTests(unittest.TestCase):
         self.assertIsNone(x["bridge"])
         self.assertNotIn("EV/Sales",x["ratios"])
 
+    def test_enterprise_bridge_counts_temporary_and_hybrid_claims_once(self):
+        fields = dict(net=12, sales=150, ebit=15, cash=40_000_000, debt=60_000_000, assets=250_000_000,
+                      liabilities=108_000_000, total_equity=129_000_000)
+        fields.update(book=110_000_000, minority=10_000_000, hybrid_equity=9_000_000,
+                      temporary_equity_total=13_000_000,redeemable_nci=8_000_000,temporary_equity_parent=5_000_000)
+        x=case("operating",[stmt(2025,**fields)])
+        self.assertEqual(x["bridge"], -52_000_000)
+        self.assertEqual(x["ratios"]["P/B"]["denominator"],110_000_000)
+        for key in ("temporary_equity_total","temporary_equity_parent","redeemable_nci"):
+            fields.pop(key)
+        y=case("operating",[stmt(2025,**fields)])
+        self.assertIsNone(y["bridge"])
+        self.assertIn("unresolved material claim",y["ev_exclusion"])
+
+    def test_known_annual_gap_blocks_observed_and_statement_dependent_models(self):
+        audit={"latest_annual":{"end":"2026-06-30"},"annual_route":"latest_filing_gap"}
+        old=stmt(2025,net=12,book=100,sales=150,ebit=15,cash=40,debt=60)
+        x=case("operating",[old],edgar=audit)
+        self.assertFalse(x["fresh"])
+        self.assertEqual(x["ratios"],{})
+        self.assertIn("2026-06-30",x["annual_gap"])
+        out=fit(x,[])
+        self.assertIsNone(out["selected"])
+        self.assertTrue(any(m["reason"]==x["annual_gap"] for m in out["decisions"]))
+
+
 class SourceTests(unittest.TestCase):
     def test_as_of_accession_period_and_conflict(self):
         def row(val,start="2025-01-01",end="2025-12-31",filed="2026-02-12",accn="1-26-3"):
