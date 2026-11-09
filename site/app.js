@@ -10,6 +10,11 @@ const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—'
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
 const fieldNames={
+ other_income_expense_note:'Other income and expense (expense sign)',
+ derivative_gain_loss_note:'Derivative gains and losses (expense sign)',
+ capex_exploration_capitalized:'Capitalized exploration and evaluation cash spending',
+ exploration_evaluation_spending:'Total exploration and evaluation cash spending',
+ exploration_evaluation_expensed:'Exploration cash spending included in operating cash flow',
  capex_ppe:'Cash purchases of property, plant and equipment',
  capex_intangibles:'Cash purchases of intangible assets',
  capex_mixed_outflow:'Combined investing outflow with an unallocated asset component',
@@ -94,7 +99,11 @@ function detail(r) {
  };
  const componentDetail=v=>{
    if(!v.components?.[0]?.line) return '';
-   const title=v.tag==='derived:FiledDepreciationAndAmortization'?'Depreciation and amortization evidence':'Filed income statement lines';
+   const titles={
+     'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
+     'disclosed:ReconciledAnnualNote':'Filed note components',
+   };
+   const title=titles[v.tag]||'Filed income statement lines';
    return '<details><summary>'+title+'</summary><ul>'+v.components.map(part=>{
      const source=part.table_url||part.source||v.table_url;
      return '<li>'+esc(part.line.replace('::',' · '))+' · '+esc(v.unit)+' '+reportedAmount.format(part.sign*part.value)+

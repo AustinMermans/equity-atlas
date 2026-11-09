@@ -15,12 +15,13 @@ from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
                                        rule_key as depreciation_rule_key, valid_component as valid_depreciation_component)
+from equity_atlas.filing_notes import PINNED as NOTES_PINNED, TAG as NOTE_TAG, notes_for, valid_note
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
 from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
 from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
-from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
+from equity_atlas.issuer_20f import BHP_CAPEX_TAG, COPY_SOURCES, FCA_BHP, MIRRORS, bhp_investment_reconciles
 from equity_atlas.sec_workbook import (CAPEX_COMPONENTS as WORKBOOK_CAPEX_COMPONENTS, CAPEX_TAG as WORKBOOK_CAPEX_TAG,
                                        DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE,
                                        SOURCE as WORKBOOK_SOURCE, workbook_url)
@@ -42,6 +43,7 @@ sec_count=0
 interim_expected=0
 quarters=0
 capex_profiles=0
+note_profiles=0
 income_profiles=0
 operating_gaps=0
 depreciation_profiles=0
@@ -146,6 +148,8 @@ def verify_period(period, row):
                 row["source"] != COPY_SOURCES[route] or row["edgar"]["annual_route"] != route or
                 (route == "regulator_20f") != (mirror[2] == FCA_BHP)):
             raise SystemExit("Public copy does not match the expected SEC filing")
+        if route == "regulator_20f" and cik == 811809 and not bhp_investment_reconciles(period["facts"]):
+            raise SystemExit("BHP exploration and capital investment amounts do not reconcile")
     elif row["source"] in COPY_SOURCES.values() and period is row["statement"]:
         raise SystemExit("Missing public 20-F provenance")
     if route == WORKBOOK_ROUTE:
@@ -227,6 +231,8 @@ def verify_period(period, row):
                             verify_income_fact(period, annual_report, selected_cik, income_profile, key, fact))
         if fact["tag"] == DEPRECIATION_TAG:
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
+        if fact["tag"] == NOTE_TAG:
+            official = bool(annual_report and valid_note(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == WORKBOOK_CAPEX_TAG:
             official = bool(official and workbook and selected_cik == 1046179 and key == "capex" and
                             fact.get("components") == list(WORKBOOK_CAPEX_COMPONENTS) and
@@ -277,7 +283,7 @@ for row in rows:
             period = row["statement"]
             report = period.get("report")
             cik = annual_cik(row, report) if report else None
-            profiled = period["facts"].get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG}
+            profiled = period["facts"].get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG}
             if report and (cik, report["accession"]) in CAPEX_PINNED and not profiled:
                 raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
             if profiled and report and not required_additional_fields(cik, report) <= period["facts"].keys():
@@ -286,6 +292,15 @@ for row in rows:
                 if period["facts"].get("capex", {}).get("tag") != WORKBOOK_CAPEX_TAG:
                     raise SystemExit("Missing TSMC workbook cash-investment total")
             capex_profiles += profiled
+        if "annual_note_profiled" in snap["stats"] and row["id"].startswith("sec:"):
+            period = row["statement"]
+            report = period.get("report")
+            cik = annual_cik(row, report) if report else None
+            expected = notes_for(cik, report) if report else {}
+            profiled = {k for k, f in period["facts"].items() if f["tag"] == NOTE_TAG}
+            if (profiled or report and (cik, report["accession"]) in NOTES_PINNED) and profiled != expected.keys():
+                raise SystemExit(f"Refusing to lose reconciled annual filing notes for {row['symbol']}")
+            note_profiles += bool(profiled)
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
@@ -334,6 +349,13 @@ for row in rows:
     annual = audit.get("latest_annual")
     if row["id"].startswith("sec:"):
         cik = int(row["id"].removeprefix("sec:"))
+        if annual and (row["statement"] or {}).get("filing") != annual["accession"]:
+            filing_key = (cik, annual["accession"])
+            mirror = MIRRORS.get(filing_key)
+            if "annual_cash_investment_profiled" in snap["stats"] and mirror and mirror[2] == FCA_BHP:
+                raise SystemExit("Refusing to lose the verified BHP annual filing")
+            if "annual_note_profiled" in snap["stats"] and filing_key in NOTES_PINNED:
+                raise SystemExit(f"Refusing to lose the annual filing with reconciled notes for {row['symbol']}")
         if annual and workbook_url(cik, annual) and (row["statement"] or {}).get("filing") != annual["accession"]:
             raise SystemExit(f"Refusing to lose verified annual coverage for {row['symbol']}")
         interim = audit.get("latest_interim")
@@ -368,6 +390,8 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
         raise SystemExit(f"{source} coverage mismatch")
 if "annual_exhibits_profiled" in snap["stats"] and exhibit_profiles != snap["stats"]["annual_exhibits_profiled"]:
     raise SystemExit("Annual earnings exhibit coverage mismatch")
+if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["annual_note_profiled"]:
+    raise SystemExit("Annual filing note coverage does not match published facts")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
 if "annual_income_profiled" in snap["stats"] and (income_profiles, operating_gaps) != (

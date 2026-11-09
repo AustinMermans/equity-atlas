@@ -22,10 +22,11 @@ from .edgar import (
     amendment_reviews, annual_from_instance, instance_url, issuer_instance_url,
     periods_from_instance, periods_from_issuer_instance,
 )
+from .filing_notes import TAG as NOTE_TAG, enrich_notes, notes_for
 from .inline import inline_url, periods_from_inline
 from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
-from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
+from .issuer_20f import BHP_CAPEX_TAG, COPY_SOURCES, MIRRORS, read_mirror
 from .sec_workbook import CAPEX_TAG as WORKBOOK_CAPEX_TAG, DA_TAG as WORKBOOK_DA_TAG, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
 from .rendered_10q import ROUTE as RENDERED_ROUTE, periods_from_rendered_10q, rendered_10q_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
@@ -242,6 +243,11 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1]=enrich_exhibit(cache,cik,selected_filing,history[-1],submissions,obj,meta)
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual earnings exhibit for {selected['end']}: {exc}")
+                if selected_filing and notes_for(cik, selected_filing):
+                    try:
+                        history[-1] = enrich_notes(cache, obj, meta, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual filing notes for {selected['end']}: {exc}")
                 if selected_filing and "ebit" not in history[-1]["facts"]:
                     reason=gap_reason(cik,selected_filing)
                     if reason:
@@ -401,9 +407,11 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
         "annual_cash_investment_profiled":sum(
-            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG} for r in sec_rows
+            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG} for r in sec_rows
         ),
         "annual_exhibits_profiled":sum(bool((r["statement"] or {}).get("annual_earnings_exhibit")) for r in sec_rows),
+        "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
+                                   for r in sec_rows),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
         "annual_operating_profit_reviewed_gaps":sum(bool((r["statement"] or {}).get("operating_profit_gap")) for r in sec_rows),
         "annual_depreciation_profiled":sum(any(f["tag"] in {DEPRECIATION_TAG,WORKBOOK_DA_TAG}

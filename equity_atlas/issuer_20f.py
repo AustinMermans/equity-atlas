@@ -10,6 +10,9 @@ from .facts import EPS_FIELDS, STOCK
 # Bind each public document and table layout to the matching SEC accession.
 # A later filing requires a reviewed profile, even if an issuer reuses a URL.
 FCA_BHP = "https://data.fca.org.uk/artefacts/NSM/DirectUpload/NI-000150351/NI-000150351.pdf"
+BHP_CAPEX_TAG = "regulator_20f:CashCapitalInvestmentSum"
+BHP_CAPEX_COMPONENTS = ("capex_ppe", "capex_exploration_capitalized")
+BHP_EXPLORATION_COMPONENTS = ("exploration_evaluation_spending", "exploration_evaluation_expensed")
 COPY_SOURCES = {"issuer_20f": "Issuer 20-F", "regulator_20f": "FCA 20-F"}
 MIRRORS = {
     (811809, "0001193125-26-354647"): ("2026-06-30", "USD", FCA_BHP),
@@ -101,6 +104,18 @@ def pdf_pages(blob):
     return output.decode("utf-8").split("\f")
 
 
+def bhp_investment_reconciles(facts):
+    required = {"capex", *BHP_CAPEX_COMPONENTS, *BHP_EXPLORATION_COMPONENTS}
+    if not required <= facts.keys():
+        return False
+    ppe, capitalized = (facts[key]["value"] for key in BHP_CAPEX_COMPONENTS)
+    spent, expensed = (facts[key]["value"] for key in BHP_EXPLORATION_COMPONENTS)
+    capex = facts["capex"]
+    return (capex["tag"] == BHP_CAPEX_TAG and capex.get("components") == list(BHP_CAPEX_COMPONENTS)
+            and all(facts[key]["value"] >= 0 for key in required)
+            and spent - expensed == capitalized and ppe + capitalized == capex["value"])
+
+
 def read_mirror(blob, receipt, report, cik):
     end, currency, url = MIRRORS[cik, report["accession"]]
     route = "regulator_20f" if url == FCA_BHP else "issuer_20f"
@@ -154,9 +169,30 @@ def read_mirror(blob, receipt, report, cik):
             label += " earnings per ordinary share (cents)"
             save(key, column(income, label, 3) / 100, f"F-1 · {label}, converted to US dollars")
         read(cf, "F-4", 3, {
-            "cfo": "Net operating cash flows", "capex": "Purchases of property, plant and equipment",
+            "cfo": "Net operating cash flows",
             "da": "Depreciation and amortisation expense", "div": "Dividends paid",
-        }, outflows={"capex", "div"})
+        }, outflows={"div"})
+        _, heading, tail = cf.partition("Investing activities")
+        investing, following, _ = tail.partition("Financing activities")
+        if not heading or not following:
+            raise ValueError("Missing BHP investing cash-flow section")
+        investing = re.sub(r"(Exploration and evaluation expenditure expensed and included in operating) *\n *cash flows",
+                           r"\1 cash flows", investing)
+        read(investing, "F-4 · Investing activities", 3, {
+            "capex_ppe": "Purchases of property, plant and equipment",
+            "exploration_evaluation_spending": "Exploration and evaluation expenditure",
+            "exploration_evaluation_expensed": "Exploration and evaluation expenditure expensed and included in operating cash flows",
+        }, outflows={"capex_ppe", "exploration_evaluation_spending"})
+        spent, expensed = (facts[key]["value"] for key in BHP_EXPLORATION_COMPONENTS)
+        save("capex_exploration_capitalized", (spent - expensed) / 1_000_000,
+             "F-4 · Exploration and evaluation cash spending less the amount included in operating cash flow")
+        ppe, capitalized = (facts[key]["value"] for key in BHP_CAPEX_COMPONENTS)
+        save("capex", (ppe + capitalized) / 1_000_000,
+             "F-4 · Cash purchases of PP&E plus capitalized exploration and evaluation expenditure",
+             concept=BHP_CAPEX_TAG.split(":", 1)[1])
+        facts["capex"]["components"] = list(BHP_CAPEX_COMPONENTS)
+        if not bhp_investment_reconciles(facts):
+            raise ValueError("BHP exploration and capital investment amounts do not reconcile")
         facts["div"]["tag"] = f"{route}:PaymentsOfOrdinaryShareDividends"
         facts["net"] = facts["net_parent"].copy()
     elif cik == 1119639:

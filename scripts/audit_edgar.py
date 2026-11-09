@@ -62,6 +62,7 @@ for kind, expected in {
         raise SystemExit("SO standalone quarter contains year-to-date cash flow")
 # Independently checked face-statement and reconciliation amounts, in base units.
 CASH_INVESTMENT = {
+    "BHP": ("USD", 9_910_000_000),
     "0941.HK": ("CNY", 207_267_000_000),
     "ARM": ("USD", 575_000_000),
     "AZN": ("USD", 5_905_000_000),
@@ -97,6 +98,10 @@ for symbol, expected in CASH_INVESTMENT.items():
         raise SystemExit(f"{symbol} cash investment: expected {expected}; got {fact}")
     checked += 1
 OTHER_CASH_FLOWS = (
+    ("BHP", "capex_ppe", 9_849_000_000),
+    ("BHP", "capex_exploration_capitalized", 61_000_000),
+    ("BHP", "exploration_evaluation_spending", 408_000_000),
+    ("BHP", "exploration_evaluation_expensed", 347_000_000),
     ("0857.HK", "capex_mixed_outflow", 1_524_000_000),
     ("ADBE", "capex_mixed_outflow", 134_000_000),
     ("ARM", "capex_financing_payment", 67_000_000),
@@ -151,6 +156,25 @@ for symbol in reviewed_gaps:
     period = rows[symbol]["statement"]
     if "ebit" in period["facts"] or not period.get("operating_profit_gap"):
         raise SystemExit(f"{symbol}: expected a documented operating profit gap")
+# USD millions in the sign convention printed by the filing notes.
+ANNUAL_NOTES = {
+    "AEM": {
+        "other_income_expense_note": (92.995, (41.219, -58.144, 43.239, 40.175, 26.506)),
+        "derivative_gain_loss_note": (-223.960, (-0.968, -111.203, 15.796, -127.585)),
+    },
+    "BMY": {"other_income_expense_note": (674, (1891, -1129, -1093, -586, 563, 434, 356, 351, -280, 147, 9, 11))},
+    "MRK": {"other_income_expense_note": (151, (-343, 1357, 323, -368, -615, -203))},
+    "PFE": {"other_income_expense_note": (6724, (-603, 2671, 67, -192, -678, 1057, 4940, 0, -538))},
+}
+for symbol, fields in ANNUAL_NOTES.items():
+    period = rows[symbol]["statement"]
+    for key, (total, components) in fields.items():
+        fact = period["facts"].get(key, {})
+        actual = tuple(p["sign"] * p["value"] for p in fact.get("components", ()))
+        expected = tuple(round(x * 1_000_000) for x in components)
+        if (fact.get("unit"), fact.get("value"), actual) != ("USD", round(total * 1_000_000), expected):
+            raise SystemExit(f"{symbol} {key}: annual note amounts changed")
+        checked += 1 + len(expected)
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
     "ADBE": ("USD", {"da": 546, "da_with_accretion": 818}),
@@ -231,5 +255,6 @@ for symbol in ("AMGN", "AMZN", "APP", "CRM", "CSCO", "DUK", "GOOG", "SNY", "SO",
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
+issuers.update(ANNUAL_NOTES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

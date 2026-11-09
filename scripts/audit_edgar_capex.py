@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.capex import CAPEX_TAG, cash_activity
 from equity_atlas.fetch import Cache
+from equity_atlas.issuer_20f import BHP_CAPEX_TAG
 from equity_atlas.models import CORE
 from equity_atlas.rendered_filing import ENDPOINT, decode_response, request_bytes, scaled, table_belongs_to_filing
 from equity_atlas.sec_workbook import CAPEX_TAG as WORKBOOK_CAPEX_TAG
@@ -76,7 +77,7 @@ def main():
     for row in snapshot["rows"]:
         period = row["statement"]
         fact = (period or {}).get("facts", {}).get("capex")
-        if not fact or fact["tag"] in {CAPEX_TAG, WORKBOOK_CAPEX_TAG} or not row["id"].startswith("sec:") or row["kind"] not in CORE:
+        if not fact or fact["tag"] in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG} or not row["id"].startswith("sec:") or row["kind"] not in CORE:
             continue
         result = audit_row(cache, row, period, fact)
         print(json.dumps(result), flush=True)
