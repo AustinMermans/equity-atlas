@@ -18,6 +18,7 @@ from equity_atlas.cash_balance import (BROAD as CASH_BROAD, GAPS as CASH_GAPS, P
                                         cash_facts, cash_gap,
                                         rule_key as cash_rule_key)
 from equity_atlas.catalog import SUCCESSIONS
+from equity_atlas.debt import FACE as DEBT_PINNED, TAG as DEBT_TAG, debt_facts
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
@@ -199,6 +200,14 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual balance-sheet liability reconciliation") from exc
         if any(period["facts"].get(key) != value for key, value in balance.items()):
             raise SystemExit("Filed liability or equity amount differs from the balance-sheet reconciliation")
+    debt = {}
+    if debt_evidence := period.get("annual_debt"):
+        try:
+            debt = debt_facts(selected_cik, annual_report, period, debt_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit("Unverified annual borrowing reconciliation") from exc
+        if any(period["facts"].get(key) != value for key, value in debt.items()):
+            raise SystemExit("Annual borrowing differs from its filed components")
     cash = {}
     if cash_evidence := period.get("annual_cash_balance"):
         try:
@@ -299,6 +308,8 @@ def verify_period(period, row):
             official = parent_equity.get(key) == fact
         if fact["tag"] in {BALANCE_LIABILITIES_TAG, BALANCE_EQUITY_TAG}:
             official = balance.get(key) == fact
+        if fact["tag"] == DEBT_TAG:
+            official = debt.get(key) == fact
         if fact["tag"] == CASH_TAG:
             official = cash.get(key) == fact
         if fact["tag"] == PRETAX_BRIDGE_TAG:
@@ -538,6 +549,17 @@ if "annual_cash_available" in snap["stats"]:
         raise SystemExit("Annual cash evidence coverage does not match published facts")
     if "annual_cash_unallocated" in snap["stats"] and cash_unallocated_count != snap["stats"]["annual_cash_unallocated"]:
         raise SystemExit("Annual unallocated cash difference coverage does not match published facts")
+if "annual_debt_reconciled" in snap["stats"]:
+    debt_count = 0
+    for row in rows:
+        period = row["statement"] or {}
+        if report := period.get("report"):
+            key = (annual_cik(row, report), report["accession"])
+            if key in DEBT_PINNED and not period.get("annual_debt"):
+                raise SystemExit(f"Missing reviewed annual borrowing evidence for {row['symbol']}")
+        debt_count += bool(period.get("annual_debt"))
+    if debt_count != snap["stats"]["annual_debt_reconciled"]:
+        raise SystemExit("Annual borrowing evidence coverage does not match published facts")
 if "annual_parent_equity_available" in snap["stats"] and (
         parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
     raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")

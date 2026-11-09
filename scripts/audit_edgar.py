@@ -512,6 +512,35 @@ for symbol in ("GE", "MUFG"):
     if "cash" in period["facts"] or not period.get("cash_gap"):
         raise SystemExit(f"{symbol}: expected a documented cash scope")
 
+# Carrying amounts independently tied to the consolidated balance sheets and notes.
+DEBT_BALANCES = {
+    "ADP": ("USD", 4_965_100_000, None),
+    "AEM": ("USD", 196_271_000, 125_199_000),
+    "BABA": ("CNY", 249_020_000_000, None),
+    "CRWD": ("USD", 745_471_000, None),
+    "DE": ("USD", 63_936_000_000, None),
+    "EQNR": ("USD", 27_810_000_000, 3_411_000_000),
+    "MRNA": ("USD", 635_000_000, None),
+    "NET": ("USD", 3_265_401_000, None),
+    "NFLX": ("USD", 14_462_836_000, None),
+    "NOW": ("USD", 1_491_000_000, None),
+    "PANW": ("USD", 1_774_000_000, None),
+    "REGN": ("USD", 2_705_900_000, None),
+    "SHOP": ("USD", 0, None),
+    "SNOW": ("USD", 2_279_827_000, None),
+    "SPOT": ("EUR", 1_458_000_000, 498_000_000),
+    "TTE": ("USD", 61_033_000_000, None),
+}
+for symbol, (currency, debt, leases) in DEBT_BALANCES.items():
+    facts = rows[symbol]["statement"]["facts"]
+    for field, value in (("debt_total", debt), ("lease_liabilities_separate", leases)):
+        if value is None:
+            continue
+        fact = facts[field]
+        if (fact["unit"], fact["value"]) != (currency, value):
+            raise SystemExit(f"{symbol}: unexpected {field} carrying amount or currency")
+        checked += 1
+
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -530,5 +559,6 @@ issuers.update(LIABILITY_BALANCES)
 issuers.update(BANK_INCOME)
 issuers.update(PARENT_EQUITY)
 issuers.update(CASH_BALANCES)
+issuers.update(DEBT_BALANCES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

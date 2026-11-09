@@ -35,6 +35,8 @@ const fieldNames={
  restricted_cash:'Restricted cash and equivalents',
  restricted_cash_current:'Current restricted cash and equivalents',
  restricted_cash_noncurrent:'Noncurrent restricted cash and equivalents',
+ debt_total:'Total debt at carrying amount',
+ lease_liabilities_separate:'Lease liabilities reported separately',
  cash_unreconciled:'Reported cash pending scope reconciliation',
  cash_held_for_customers:'Cash held for customers or clearing members',
  restricted_cash_litigation:'Restricted cash in litigation escrow',
@@ -215,6 +217,7 @@ function detail(r) {
    if(!v.components?.[0]?.line) return '';
    const titles={
      'derived:FiledCashBalance':'Filed cash balance components',
+     'derived:FiledDebtCarryingAmount':'Filed borrowing or lease components',
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
      'derived:FiledBalanceSheetLiabilities':'Filed balance-sheet liability lines',
