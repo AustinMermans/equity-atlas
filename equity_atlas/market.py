@@ -1,9 +1,10 @@
 """Licensed public data from Taiwan's exchange and central bank."""
-from datetime import date
+from datetime import date, timedelta
 import math
 import re
 
 TWSE_CLOSE = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+TWSE_DAILY_QUOTES = "https://www.twse.com.tw/rwd/en/afterTrading/MI_INDEX?date={}&type=ALLBUT0999&response=json"
 TWSE_ISSUERS = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
 TWSE_MULTIPLES = "https://www.twse.com.tw/rwd/en/afterTrading/BWIBBU_d?date={}&selectType=ALL&response=json"
 CBC_FX = "https://www.cbc.gov.tw/en/lp-700-2-1-40.html"
@@ -74,12 +75,41 @@ def taiwan_issuers(quotes, registry, day, limit):
     return quote_day, rows
 
 
+def dated_quotes(report, day):
+    label = day.strftime("%Y/%m/%d") + " Daily Quotes(All(no Warrant & CBBC & OCBBC))"
+    if report["stat"] != "OK" or report["date"] != day.strftime("%Y%m%d"):
+        raise ValueError("Exchange daily quote report date mismatch")
+    tables = [table for table in report["tables"] if table.get("title") == label]
+    if len(tables) != 1:
+        raise ValueError("No unique daily quote table in the exchange report")
+    table = tables[0]
+    fields = table["fields"]
+    if fields.count("Security Code") != 1 or fields.count("Closing Price") != 1:
+        raise ValueError("Unexpected exchange daily quote columns")
+    code, price = fields.index("Security Code"), fields.index("Closing Price")
+    roc_day = f"{day.year - 1911:03d}{day:%m%d}"
+    return [{"Date": roc_day, "Code": row[code], "ClosingPrice": row[price]} for row in table["data"]]
+
+
 def load_taiwan(cache, day, limit=50):
-    quotes, close_meta = cache.json(TWSE_CLOSE, 4)
     registry, shares_meta = cache.json(TWSE_ISSUERS, 12)
-    quote_day, rows = taiwan_issuers(quotes, registry, day, limit)
-    receipts = {"close": close_meta, "shares": shares_meta}
     issues = []
+    try:
+        quotes, close_meta = cache.json(TWSE_CLOSE, 4)
+        quote_day, rows = taiwan_issuers(quotes, registry, day, limit)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        issues.append(f"TWSE OpenAPI closing prices: {exc}")
+        for days_ago in range(8):
+            session = day - timedelta(days=days_ago)
+            try:
+                report, close_meta = cache.json(TWSE_DAILY_QUOTES.format(session.strftime("%Y%m%d")), 24)
+                quote_day, rows = taiwan_issuers(dated_quotes(report, session), registry, day, limit)
+                break
+            except (OSError, ValueError, KeyError, TypeError, IndexError):
+                continue
+        else:
+            raise ValueError("No usable official Taiwan closing prices in the last seven days") from exc
+    receipts = {"close": close_meta, "shares": shares_meta}
     try:
         report, receipts["multiples"] = cache.json(TWSE_MULTIPLES.format(quote_day.strftime("%Y%m%d")), 24)
         if report["stat"] != "OK" or report["date"] != quote_day.strftime("%Y%m%d"):

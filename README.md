@@ -24,6 +24,6 @@ python3 -m equity_atlas --public public-issuers.csv --open-market --out data/pub
 python3 scripts/verify_public.py data/public-site/snapshot.json
 ```
 
-The public workflow runs weekdays at 10:23 UTC and supports a manual refresh. A build that falls below 80% recent annual coverage fails before deployment. The public view carries the build date, quote date, and filing periods independently. For a scheduled local market run, use `scripts/refresh-market.sh` with the same SEC user agent, optionally `ATLAS_LIMIT` and `ATLAS_RANKING`. It preserves dated run outputs and updates `data/latest` only on success. Set the working directory and interpreter path explicitly in any external scheduler.
+The public workflow runs weekdays at 10:23 UTC and supports a manual refresh. A build that falls below 80% recent annual coverage fails before deployment. The public view carries the build date, quote date, and filing periods independently. The exchange’s dated daily quote report provides closing prices when its OpenAPI feed is unavailable. For a scheduled local market run, use `scripts/refresh-market.sh` with the same SEC user agent, optionally `ATLAS_LIMIT` and `ATLAS_RANKING`. It preserves dated run outputs and updates `data/latest` only on success. Set the working directory and interpreter path explicitly in any external scheduler.
 
 See [methodology](docs/methodology.md), [source and scaling notes](docs/pipeline.md), and the [pilot review](docs/pilot-review.md).

@@ -19,7 +19,7 @@ from equity_atlas.sec_workbook import PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE 
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
 from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason
 from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT
-from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
+from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_DAILY_QUOTES, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
 rows=snap["rows"]
@@ -40,7 +40,10 @@ prices=[]
 market=snap.get("market_sources",{})
 if open_market:
     receipts=market.get("receipts",{})
-    if market.get("license")!=OPEN_LICENSE or receipts.get("close",{}).get("url")!=TWSE_CLOSE or receipts.get("shares",{}).get("url")!=TWSE_ISSUERS:
+    close_url = receipts.get("close", {}).get("url")
+    dated_close = TWSE_DAILY_QUOTES.format(date.fromisoformat(market["date"]).strftime("%Y%m%d"))
+    if (market.get("license") != OPEN_LICENSE or close_url not in {TWSE_CLOSE, dated_close} or
+            receipts.get("shares", {}).get("url") != TWSE_ISSUERS):
         raise SystemExit("Unverified public market sources")
     fx=market.get("fx")
     if fx and (fx["date"]!=market["date"] or fx["source"]["url"]!=CBC_FX or not 15<=fx["rate"]<=60):
