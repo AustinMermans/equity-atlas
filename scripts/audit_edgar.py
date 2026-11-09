@@ -588,6 +588,19 @@ for symbol, (currency, values) in FUNDING_BALANCES.items():
         checked += 1
 
 CASH_DISTRIBUTIONS = {
+    "AZN": ("USD", {"div": 4_846_000_000, "div_total": 4_971_000_000, "div_nci": 6_000_000,
+                    "div_payment_fx_loss": 6_000_000, "div_payment_hedge_receipt": 113_000_000}),
+    "BP": ("USD", {"div": 5_059_000_000, "div_nci": 506_000_000, "div_other_equity_paid": 1_196_000_000}),
+    "COF": ("USD", {"div": 1_516_000_000, "div_preferred_paid": 252_000_000}),
+    "ENB": ("CAD", {"div": 8_220_000_000, "div_preferred_paid": 419_000_000, "div_nci": 360_000_000}),
+    "EQNR": ("USD", {"div": 4_791_000_000, "div_ordinary_disclosed": 4_791_000_000}),
+    "NVS": ("USD", {"div": 7_818_000_000}),
+    "RIO": ("USD", {"div": 6_145_000_000, "div_nci": 314_000_000}),
+    "SAP": ("EUR", {"div": 2_743_000_000, "div_nci": 2_000_000}),
+    "SHEL": ("USD", {"div": 8_472_000_000, "div_nci": 147_000_000}),
+    "TTE": ("USD", {"div": 8_121_000_000, "div_nci": 482_000_000, "div_hybrid_paid": 303_000_000}),
+    "UL": ("EUR", {"div": 4_453_000_000}),
+    "WFC": ("USD", {"div": 5_434_000_000, "div_preferred_paid": 1_050_000_000}),
     "BLK": ("USD", {"div_mixed_distributions": 3_347_000_000}),
     "BTI": ("GBP", {"div": 5_238_000_000, "div_nci": 100_000_000, "div_hybrid_paid": 54_000_000}),
     "CM": ("CAD", {"div_mixed_distributions": 3_993_000_000, "div": 3_629_000_000,

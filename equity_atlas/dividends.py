@@ -3,7 +3,7 @@
 from datetime import date, datetime
 import re
 
-from .capex import FINANCING_TOTALS
+from .capex import FINANCING_TOTALS, INVESTING_TOTALS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .parent_equity import closing_label
 from .rendered_filing import (ENDPOINT, annual_table, decode_response, filing_tables, request_bytes,
@@ -25,6 +25,12 @@ SNY = (1121404, "0001628280-26-008403")
 UBS = (1610520, "0001610520-26-000023")
 BLK = (2012383, "0001193125-26-071966")
 RY = (1000275, "0001193125-25-305927")
+EQNR = (1140625, "0001140625-26-000013")
+AZN = (901832, "0001104659-26-019130")
+RIO = (863064, "0001628280-26-009531")
+DIVIDENDS_FINANCING = IFRS + "DividendsPaidClassifiedAsFinancingActivities"
+NCI_OPERATING = IFRS + "DividendsPaidToNoncontrollingInterests"
+ORDINARY_NOTE = IFRS + "DividendsPaidOrdinaryShares"
 MILLION = 1_000_000
 PROFILES = {
     BTI: ("GBP", "Group Cash Flow Statement", (
@@ -50,6 +56,42 @@ PROFILES = {
     BLK: ("USD", "Consolidated Statements of Cash Flows", (
         ("div_mixed_distributions", "blk:DividendsOrSubcoDistributionsPaid", "Dividends/Subco distributions paid"),
     )),
+    (313807, "0000313807-26-000006"): ("USD", "Group cash flow statement", (
+        ("div", PARENT, "bp shareholders"),
+        ("div_nci", NCI, "Non-controlling interests"),
+        ("div_other_equity_paid", IFRS + "PaymentsOfOtherEquityInstruments", "Payments of other equity instruments"),
+    )),
+    AZN: ("USD", "Consolidated Statement of Cash Flows", (
+        ("div_total", DIVIDENDS_FINANCING, "Dividends paid"),
+        ("div_payment_hedge_receipt", "azn:HedgeContractsRelatingToDividendPaymentsReceiptsClassifiedAsFinancingActivities",
+         "Hedge contracts relating to dividend payments"),
+    )),
+    EQNR: ("USD", "Consolidated statement of cash flows", (
+        ("div", DIVIDENDS_FINANCING, "Dividends paid"),
+    )),
+    (1114448, "0001114448-26-000004"): ("USD", "Consolidated cash flow statements", (
+        ("div", PARENT, "Dividends paid to shareholders of Novartis AG"),
+    )),
+    RIO: ("USD", "Consolidated cash flow statement", (
+        ("div", PARENT, "Equity dividends paid to owners of Rio Tinto"),
+        ("div_nci", NCI_OPERATING, "Dividends paid to holders of non-controlling interests in subsidiaries"),
+    )),
+    (1000184, "0001104659-26-020058"): ("EUR", "Consolidated statements of cash flows", (
+        ("div", PARENT, "Dividends paid"),
+        ("div_nci", NCI, "Dividends paid on non-controlling interests"),
+    )),
+    (1306965, "0001628280-26-017024"): ("USD", "Consolidated statement of cash flows", (
+        ("div", PARENT, "Shell plc shareholders"),
+        ("div_nci", NCI, "Non-controlling interest"),
+    )),
+    (879764, "0001104659-26-035876"): ("USD", "Consolidated statement of cash flow", (
+        ("div", PARENT, "Dividends paid: Parent company shareholders"),
+        ("div_nci", NCI, "Dividends paid: Non-controlling interests"),
+        ("div_hybrid_paid", "tot:PaymentForCouponsOnSubordinatedNotes", "Payments on perpetual subordinated notes"),
+    )),
+    (217410, "0000217410-26-000007"): ("EUR", "Consolidated cash flow statement", (
+        ("div", PARENT, "Dividends paid on ordinary share capital"),
+    )),
     HDFC: ("INR", "CONSOLIDATED STATEMENTS OF CASH FLOWS ₨ in Millions,", (
         ("div_total", US + "PaymentsOfDividends", "Payment of dividends"),
     )),
@@ -63,6 +105,14 @@ CIBC_MEMBERS = {
     "div": "Common shares [member]",
     "div_preferred_paid": "Preference shares [member]",
     "div_hybrid_paid": "Other equity Instruments [member]",
+}
+AZN_DIVIDEND_BRIDGE = {
+    "ordinary": "Dividends charged to equity",
+    "exchange_loss": "Exchange losses on payment of dividend",
+    "hedge": "Hedge contracts relating to payment of dividends (Consolidated Statement of Cash Flows)",
+    "div_nci": "Dividends paid to non-controlling interests",
+    "unclaimed": "Net movement of unclaimed dividends in the year",
+    "div_total": "Dividends paid (Consolidated Statement of Cash Flows)",
 }
 SONY_QUERY = "Total amount of dividends"
 SONY_NOTE = "SONY GROUP CORPORATION AND CONSOLIDATED SUBSIDIARIES / For the fiscal year ended "
@@ -96,20 +146,24 @@ def extract_cash(cache, cik, report, period, key, obj):
     if period["currency"] != currency:
         raise ValueError("Unexpected dividend reporting currency")
     rows = table["rows"]
-    headers = {"sny:DividendsPaidAbstract"} if key == SNY else FINANCING_START
-    begin, = (i for i, r in enumerate(rows) if r[1] in headers and r[index] is None)
+    headers = [i for i, r in enumerate(rows) if r[1] in FINANCING_START and r[index] is None]
+    begin, = headers or [i for i, r in enumerate(rows) if r[1] in INVESTING_TOTALS and type(r[index]) in (int, float)]
     ends = FINANCING_TOTALS | {IFRS + "CashFlowsFromUsedInFinancingActivitiesContinuingOperations"}
     end = next((i for i, r in enumerate(rows) if i > begin and r[1] in ends and type(r[index]) in (int, float)), None)
     if end is None:
         raise ValueError("Missing financing cash-flow subtotal")
-    operating, = (scaled(r[index], MILLION) for r in rows[:begin] if r[1] in OPERATING and type(r[index]) in (int, float))
+    operating_index, = (i for i, r in enumerate(rows[:begin]) if r[1] in OPERATING and type(r[index]) in (int, float))
+    operating = scaled(rows[operating_index][index], MILLION)
     payments = {}
     for field, tag, label in fields:
-        outflow, = (r[index] for r in rows[begin+1:end] if r[:2] == [label, tag] and type(r[index]) in (int, float))
-        value = -scaled(outflow, MILLION)
+        section = rows[:operating_index] if key == RIO and tag == NCI_OPERATING else rows[begin+1:end]
+        outflow, = (r[index] for r in section if r[:2] == [label, tag] and type(r[index]) in (int, float))
+        value = scaled(outflow, MILLION)
+        if field != "div_payment_hedge_receipt":
+            value = -value
         exact = exact_sec_amount(obj, period, report, tag)
         if exact is not None and exact != value:
-            raise ValueError(f"Dividend differs between Company Facts and the financing line {label}")
+            raise ValueError(f"Dividend differs between Company Facts and the cash-flow line {label}")
         payments[field] = value
     return {**source, "source": receipt["url"], "sha256": receipt["sha256"], "operating": operating,
             "payments": payments}
@@ -138,6 +192,20 @@ def cibc_note(cache, cik, report):
             amounts[scope] = scaled(row[first], MILLION)
     payments = {field: amounts[member] for field, member in CIBC_MEMBERS.items()}
     return {**source_evidence(receipt, table["url"], digests.get(table["url"], "")), "payments": payments}
+
+
+def astrazeneca_note(cache, cik, report):
+    tables, digests, receipt = filing_tables(cache, cik, report, AZN_DIVIDEND_BRIDGE["ordinary"])
+    column = f"{date.fromisoformat(report['end']).year} $m"
+    table, = (t for t in tables if t["source"] == "document table" and t["url"] == report["url"]
+              and (t["title"] or "").endswith("Reconciliation of dividends charged to equity to the Consolidated Statement of Cash Flows:")
+              and t["columns"].count(column) == 1)
+    index = table["columns"].index(column)
+    payments = {}
+    for field, label in AZN_DIVIDEND_BRIDGE.items():
+        amount, = (row[index] for row in table["rows"] if row[0] == label)
+        payments[field] = 0 if amount == "-" else scaled(amount, MILLION)
+    return {**source_evidence(receipt, report["url"], digests.get(report["url"], "")), "payments": payments}
 
 
 def sony_note(cache, cik, report):
@@ -192,6 +260,14 @@ def money_inr(value):
     return scaled(value, MILLION)
 
 
+def check_ordinary_note(period, report, value):
+    ordinary = period["facts"].get("div_ordinary_disclosed", {})
+    if (ordinary.get("tag"), ordinary.get("url"), ordinary.get("filed"), ordinary.get("start"),
+            ordinary.get("unit"), ordinary.get("value")) != (
+            ORDINARY_NOTE, report["url"], report["filed"], period["start"], period["currency"], value):
+        raise ValueError("Ordinary-share amount differs from the same-year dividend disclosure")
+
+
 def dividend_facts(cik, report, period, evidence):
     key = rule_key(cik, report)
     currency, _, fields = PROFILES[key]
@@ -207,12 +283,12 @@ def dividend_facts(cik, report, period, evidence):
             (report["filed"], report["url"], period["start"], currency)
             or abs(cfo["value"] - cash["operating"]) > tolerance or not valid_source(cash, report)
             or payments.keys() != {field for field, _, _ in fields}
-            or any(type(v) is not int or v < 0 for v in payments.values())):
+            or any(type(v) is not int or v < 0 and k != "div_payment_hedge_receipt" for k, v in payments.items())):
         raise ValueError("Unverified annual dividend statement or cash-flow anchor")
     result = {}
 
     def save(field, value, source, label, parts=None):
-        if type(value) is not int or value < 0:
+        if type(value) is not int or value < 0 and field != "div_payment_hedge_receipt":
             raise ValueError("Invalid dividend amount")
         fact = {k: source[k] for k in ("source", "sha256", "table_url", "table_sha256_16")}
         fact.update(value=value, unit=currency, start=period["start"], locator=label,
@@ -221,6 +297,8 @@ def dividend_facts(cik, report, period, evidence):
             fact["components"] = parts
         result[field] = fact
 
+    if key == EQNR:
+        check_ordinary_note(period, report, payments["div"])
     for field, _, label in fields:
         if field == "div_total":
             if "div_total" in facts and facts["div_total"]["tag"] != TAG:
@@ -235,9 +313,19 @@ def dividend_facts(cik, report, period, evidence):
                 raise ValueError("Parent dividend line needs a separate preferred allocation")
             save(field, payments[field], cash, label)
 
-    if key in {CIBC, SONY, HDFC} and (not note or not valid_source(note, report, document=key == SONY)):
+    if key in {CIBC, SONY, HDFC, AZN} and (not note or not valid_source(note, report, document=key in {SONY, AZN})):
         raise ValueError("Unverified annual dividend note")
-    if key == CIBC:
+    if key == AZN:
+        parts = note["payments"]
+        if (parts.keys() != AZN_DIVIDEND_BRIDGE.keys() or any(type(value) is not int for value in parts.values())
+                or parts["div_total"] != payments["div_total"] or parts["hedge"] != payments["div_payment_hedge_receipt"]
+                or sum(value for field, value in parts.items() if field != "div_total") != parts["div_total"]):
+            raise ValueError("AstraZeneca dividend note does not reconcile to the financing cash flows")
+        check_ordinary_note(period, report, parts["ordinary"])
+        save("div", parts["ordinary"], note, "Ordinary dividends paid during the year, as reconciled in the dividend note")
+        save("div_nci", parts["div_nci"], note, AZN_DIVIDEND_BRIDGE["div_nci"])
+        save("div_payment_fx_loss", parts["exchange_loss"], note, AZN_DIVIDEND_BRIDGE["exchange_loss"])
+    elif key == CIBC:
         if note["payments"].keys() != CIBC_MEMBERS.keys() or sum(note["payments"].values()) != payments["div_mixed_distributions"]:
             raise ValueError("CIBC common, preferred and capital note distributions do not sum to financing cash flow")
         for field, scope in CIBC_MEMBERS.items():
@@ -277,7 +365,7 @@ def dividend_facts(cik, report, period, evidence):
 def enrich_dividends(cache, obj, cik, report, period):
     key = rule_key(cik, report)
     evidence = {"cash": extract_cash(cache, cik, report, period, key, obj)}
-    parser = {CIBC: cibc_note, SONY: sony_note, HDFC: hdfc_equity}.get(key)
+    parser = {AZN: astrazeneca_note, CIBC: cibc_note, SONY: sony_note, HDFC: hdfc_equity}.get(key)
     if parser:
         evidence["note"] = parser(cache, cik, report)
     recovered = dividend_facts(cik, report, period, evidence)

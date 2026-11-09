@@ -208,6 +208,8 @@ class EdgarTests(unittest.TestCase):
             "PreferredStockIncludingAdditionalPaidInCapitalNetOfDiscount":stock(40),
             "PreferredStockLiquidationPreferenceValue":stock(46),
             "PaymentsOfDividends":flow(65), "DividendsCommonStockCash":flow(52),
+            "PaymentsOfDividendsPreferredStockAndPreferenceStock":flow(10),
+            "PaymentsOfDividendsMinorityInterest":flow(3),
             "Depreciation":flow(12),
         }}}
         statement=from_sec(data,META,DAY,1)[0]
@@ -217,6 +219,7 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(common_book(v),460)
         self.assertEqual(common_earnings(v,"us-gaap:NetIncomeLoss"),110)
         self.assertEqual((v["div_total"],v["div_common_declared"]),(65,52))
+        self.assertEqual((v["div_preferred_paid"],v["div_nci"]),(10,3))
         self.assertIsNone(common_dividends(statement))
         self.assertNotIn("da",v)
         self.assertEqual(debt_amount({"debt_current_total":20,"debt_noncurrent":80,"short_borrow":12}),100)

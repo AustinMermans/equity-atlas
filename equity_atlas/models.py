@@ -160,7 +160,7 @@ def common_dividends(statement):
     if "div_mixed_distributions" in v:
         return None
     minority=v.get("minority",v.get("total_equity",0)-v.get("book",0) if "total_equity" in v else 0)
-    if minority>0:
+    if minority>0 or v.get("div_nci",0)>0:
         return None
     if v.get("preferred_and_other_equity",0)>0:
         return None  # A combined noncommon claim may also pay distributions outside preferred dividends.
@@ -168,7 +168,7 @@ def common_dividends(statement):
         if {"div_total","div_preferred_paid"} <= v.keys() and v["div_total"] >= v["div_preferred_paid"]:
             return v["div_total"] - v["div_preferred_paid"]
         return None
-    return v.get("div")
+    return None if v.get("div_preferred_paid",0)>0 else v.get("div")
 
 def observed(case):
     """Raw ratios in issuer dollars. No division by missing/nonpositive fundamentals."""
