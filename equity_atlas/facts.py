@@ -6,22 +6,40 @@ import re
 
 # Alias order is policy; consolidated parent/shareholder concepts precede broader fallbacks.
 TAGS = {
-    "sales": "RevenueFromContractWithCustomerExcludingAssessedTax Revenues SalesRevenueNet RevenueFromContractWithCustomerIncludingAssessedTax Revenue",
-    "net": "NetIncomeLossAvailableToCommonStockholdersBasic ProfitLossAttributableToOwnersOfParent NetIncomeLoss ProfitLoss",
+    "sales": "RevenuesNetOfInterestExpense Revenues Revenue SalesRevenueNet RevenueFromContractWithCustomerExcludingAssessedTax RevenueFromContractWithCustomerIncludingAssessedTax",
+    "contract_sales": "RevenueFromContractWithCustomerExcludingAssessedTax RevenueFromContractWithCustomerIncludingAssessedTax",
+    "net": "NetIncomeLossAvailableToCommonStockholdersBasic ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity ProfitLossAttributableToOwnersOfParent NetIncomeLoss ProfitLoss",
+    "net_parent": "ProfitLossAttributableToOwnersOfParent NetIncomeLoss",
+    "net_consolidated": "ProfitLoss",
+    "net_common": "NetIncomeLossAvailableToCommonStockholdersBasic ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity",
     "ebit": "OperatingIncomeLoss ProfitLossFromOperatingActivities",
     "assets": "Assets",
     "liabilities": "Liabilities",
     "book": "StockholdersEquity EquityAttributableToOwnersOfParent",
     "total_equity": "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest Equity",
-    "preferred": "PreferredStockCarryingValue PreferredStockValue PreferredStocksIncludingAdditionalPaidInCapital",
+    "preferred": "PreferredStockIncludingAdditionalPaidInCapitalNetOfDiscount PreferredStockIncludingAdditionalPaidInCapital PreferredStockCarryingValue PreferredStockValue",
+    "preferred_liquidation": "PreferredStockLiquidationPreferenceValue",
+    "common_book": "CommonStockholdersEquity",
+    "shares_outstanding": "CommonStockSharesOutstanding",
+    "weighted_shares_basic": "WeightedAverageNumberOfSharesOutstandingBasic",
+    "weighted_shares_diluted": "WeightedAverageNumberOfDilutedSharesOutstanding",
+    "eps_basic": "EarningsPerShareBasic BasicEarningsLossPerShare",
+    "eps_diluted": "EarningsPerShareDiluted DilutedEarningsLossPerShare",
     "minority": "MinorityInterest NoncontrollingInterests",
     "cash": "CashAndCashEquivalentsAtCarryingValue CashAndCashEquivalents",
+    "cash_due_from_banks": "CashAndDueFromBanks",
+    "interest_bearing_deposits_at_banks": "InterestBearingDepositsInBanks",
+    "customer_deposits": "Deposits",
+    "loans_net": "LoansAndLeasesReceivableNetReportedAmount",
+    "net_interest_income": "InterestIncomeExpenseNet InterestRevenueExpense",
+    "credit_loss_provision": "ProvisionForLoanLeaseAndOtherLosses",
     "st_investments": "ShortTermInvestments ShortTermInvestmentsAvailableForSale",
     "debt_total": "DebtLongtermAndShorttermCombinedAmount DebtAndLeaseObligations Borrowings",
     "debt": "LongTermDebtAndCapitalLeaseObligations LongTermDebt",
     "debt_current": "LongTermDebtAndCapitalLeaseObligationsCurrent LongTermDebtCurrent CurrentPortionOfLongTermBorrowings",
     "debt_noncurrent": "LongTermDebtAndCapitalLeaseObligationsNoncurrent LongTermDebtNoncurrent NoncurrentBorrowings",
-    "short_borrow": "ShortTermBorrowings ShortTermDebt CurrentBorrowings",
+    "short_borrow": "ShortTermBorrowings ShortTermDebt",
+    "debt_current_total": "CurrentBorrowings",
     "cfo": "NetCashProvidedByUsedInOperatingActivities CashFlowsFromUsedInOperatingActivities",
     "capex": "PaymentsToAcquirePropertyPlantAndEquipment PaymentsToAcquireProductiveAssets PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities PurchaseOfPropertyPlantAndEquipment",
     "tax": "IncomeTaxExpenseBenefit IncomeTaxExpenseContinuingOperations TaxExpense",
@@ -34,108 +52,179 @@ TAGS = {
     "st_issued": "ProceedsFromShortTermDebt",
     "st_repaid": "RepaymentsOfShortTermDebt",
     "interest": "InterestExpenseDebt InterestAndDebtExpense InterestExpense InterestExpenseOnBorrowings",
-    "div": "PaymentsOfDividendsCommonStock PaymentsOfOrdinaryShareDividends PaymentsOfDividends DividendsPaidClassifiedAsFinancingActivities DividendsPaid",
+    "div": "PaymentsOfDividendsCommonStock PaymentsOfOrdinaryShareDividends PaymentsOfDividends PaymentsOfOrdinaryDividends DividendsPaidClassifiedAsFinancingActivities DividendsPaid",
+    "div_total": "PaymentsOfDividends PaymentsOfOrdinaryDividends DividendsPaidClassifiedAsFinancingActivities DividendsPaid",
+    "div_preferred_paid": "PaymentsOfDividendsPreferredStock PaymentsOfPreferredDividends",
+    "div_common_declared": "DividendsCommonStockCash",
+    "preferred_earnings_adjustment": "PreferredStockDividendsAndOtherAdjustments",
     "buybacks": "PaymentsForRepurchaseOfCommonStock PaymentsToAcquireOrRedeemEntitysShares",
     "issuance": "ProceedsFromStockPlans ProceedsFromIssuanceOfCommonStock ProceedsFromIssuingShares",
     "debt_net": "ProceedsFromRepaymentsOfDebt",
-    "da": "DepreciationDepletionAndAmortization DepreciationAndAmortization DepreciationAmortizationAndAccretionNet DepreciationAndAmortisationExpense DepreciationDepletionAndAmortizationPropertyPlantAndEquipment Depreciation",
+    "da": "DepreciationDepletionAndAmortization DepreciationAndAmortization DepreciationAndAmortisationExpense",
+    "da_with_accretion": "DepreciationAmortizationAndAccretionNet",
+    "depreciation": "Depreciation DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
+    "amortization": "AmortizationOfIntangibleAssets AmortisationOfIntangibleAssets",
     "oci": "OtherComprehensiveIncomeLossNetOfTax OtherComprehensiveIncomeAttributableToOwnersOfParent",
 }
-STOCK = {"assets","liabilities","book","total_equity","preferred","minority","cash","st_investments","debt","debt_current","debt_noncurrent","short_borrow","debt_total","ar","inventory","ap"}
+STOCK = {"assets","liabilities","book","total_equity","preferred","minority","cash","st_investments","debt","debt_current","debt_noncurrent","short_borrow","debt_total","ar","inventory","ap","common_book","preferred_liquidation","shares_outstanding","debt_current_total","cash_due_from_banks","interest_bearing_deposits_at_banks","customer_deposits","loans_net"}
 ANNUAL = {"10-K","10-K/A","20-F","20-F/A","40-F","40-F/A","10-KT"}
+INTERIM = {"10-Q","10-Q/A","10-QT","10-QT/A"}
+REGISTRATION = {"S-1","S-1/A","F-1","F-1/A","424B4"}
+SHARE_FIELDS = {"shares_outstanding","weighted_shares_basic","weighted_shares_diluted"}
+EPS_FIELDS = {"eps_basic","eps_diluted"}
 ALIASES = {metric: val.split() for metric, val in TAGS.items()}
 REVERSE = defaultdict(list)
 for metric, tags in ALIASES.items():
     for i, tag in enumerate(tags):
         REVERSE[tag].append((metric,i))
 
-def qualifies(metric, start, end):
+def qualifies(metric, start, end, kind="annual"):
     if metric in STOCK:
         return start is None
-    return start is not None and 330 <= (end - start).days <= 400
+    bounds = {"annual": (330, 400), "quarter": (70, 115), "ytd": (145, 300)}
+    low, high = bounds[kind]
+    return start is not None and low <= (end - start).days + 1 <= high
 
-def _assemble(groups, asof):
-    """Select one accession and reporting currency per fiscal year, then one coherent period."""
-    by_end = defaultdict(list)
-    for (end, currency, filing), metrics in groups.items():
-        if not ({"net","book"} <= metrics.keys() or {"net","sales"} <= metrics.keys()):
+def sec_filing_index(submissions, cik, asof):
+    """Resolve accession metadata from the registrant's own submission feed."""
+    if int(submissions["cik"]) != cik:
+        raise ValueError("SEC submissions CIK mismatch")
+    recent = submissions["filings"]["recent"]
+    result = {}
+    for i, accession in enumerate(recent["accessionNumber"]):
+        form = recent["form"][i]
+        filed = recent["filingDate"][i]
+        report = recent["reportDate"][i]
+        primary = recent["primaryDocument"][i]
+        if (form not in ANNUAL | INTERIM | REGISTRATION or not report or
+            not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession) or
+            not re.fullmatch(r"[a-zA-Z0-9_.-]+", primary) or
+            not date.fromisoformat(report) <= date.fromisoformat(filed) <= asof):
             continue
-        by_end[end].append((currency,filing,metrics))
-    result = []
-    for end, candidates in sorted(by_end.items()):
-        # Prefer the current-year filing over later comparative presentations. Within it
-        # select the better-covered reporting currency (e.g. TWD over convenience USD).
-        def score(c):
-            cur, _, fields = c
-            pub = max(max(x["filed"] for x in values) for values in fields.values())
-            lag = (date.fromisoformat(pub) - end).days
-            return (lag <= 240, len(fields), pub, cur)
-        cur, filing, metrics = max(candidates, key=score)
-        start_count = defaultdict(int)
-        for metric in ("sales","net","ebit","cfo","div"):
-            for x in metrics.get(metric, []):
-                start_count[x["start"]] += 1
-        start = max(start_count, key=lambda x:(start_count[x],x)) if start_count else None
-        chosen = {}
-        conflicts = []
-        for metric, items in metrics.items():
-            items = [x for x in items if x["start"] is None or x["start"] == start]
-            if not items:
-                continue
-            priority = min(x["priority"] for x in items)
-            items = [x for x in items if x["priority"] == priority]
-            if len({x["value"] for x in items}) != 1:
-                conflicts.append(metric)
-                continue
-            x = max(items,key=lambda y:(y["filed"], y["tag"], y.get("fact_id",""))).copy()
-            x.pop("priority")
-            chosen[metric] = x
-        if "net" in chosen and ("sales" in chosen or "book" in chosen):
-            result.append({"end":str(end),"start":start,"currency":cur,"filing":filing,
-                           "facts":chosen,"conflicts":sorted(conflicts)})
-    # A 52/53-week filer can shift its fiscal year end; do not count close dates as two years.
+        path = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession.replace('-', '')}"
+        result[accession] = {"end": report, "filed": filed, "form": form, "url": f"{path}/{primary}",
+                             "primary": primary, "path": path, "accession": accession}
+    return result
+
+def latest_filing(index, forms):
+    return max((x for x in index.values() if x["form"] in forms),
+               key=lambda x: (x["end"], x["filed"], x["accession"]), default=None)
+
+def _pick_fields(metrics):
+    # Count distinct flow concepts per start date, not duplicate fact records.
+    starts = defaultdict(set)
+    for metric, items in metrics.items():
+        for item in items:
+            if item["start"] is not None:
+                starts[item["start"]].add(metric)
+    if not starts:
+        return None, {}, []
+    start = max(starts, key=lambda k: (len(starts[k] & {"sales","net","ebit","cfo"}), len(starts[k]), k))
+    chosen, conflicts = {}, []
+    for metric, items in metrics.items():
+        eligible = [x for x in items if x["start"] is None or x["start"] == start]
+        if not eligible:
+            continue
+        priority = min(x["priority"] for x in eligible)
+        eligible = [x for x in eligible if x["priority"] == priority]
+        if len({x["value"] for x in eligible}) != 1:
+            conflicts.append(metric)
+            continue
+        fact = max(eligible, key=lambda x: (x["filed"], x["tag"], x.get("fact_id", ""))).copy()
+        fact.pop("priority")
+        chosen[metric] = fact
+    if "book" not in chosen and "book" not in conflicts and {"total_equity","minority"} <= chosen.keys():
+        total, minority = chosen["total_equity"], chosen["minority"]
+        chosen["book"] = {**total, "value": total["value"] - minority["value"],
+                          "tag": "derived:ParentBook",
+                          "components": {"total_equity": total["tag"], "noncontrolling_equity": minority["tag"]},
+                          "locator": "Total equity less noncontrolling equity"}
+    if {"book","preferred"} <= chosen.keys() and "common_book" not in chosen and not {"book","preferred"} & set(conflicts):
+        book, preferred = chosen["book"], chosen["preferred"]
+        chosen["common_book"] = {**book, "value": book["value"] - preferred["value"],
+                                 "tag": "derived:CommonBook",
+                                 "components": {"parent_book": book["tag"], "preferred_carrying_value": preferred["tag"]},
+                                 "locator": "Parent equity less preferred carrying value"}
+    return start, chosen, sorted(conflicts)
+
+def _assemble(groups, filings=None, kind="annual"):
+    """Choose a coherent as-filed report, then a reporting currency and period."""
+    filings = filings or {}
+    by_end = defaultdict(list)
+    for (end, currency, accession), metrics in groups.items():
+        start, chosen, conflicts = _pick_fields(metrics)
+        if "net" not in chosen or not {"sales","book"} & chosen.keys():
+            continue
+        pub = max(x["filed"] for x in chosen.values())
+        info = filings.get(accession)
+        same_report = bool(info and info["end"] == str(end))
+        near = (date.fromisoformat(pub) - end).days <= 240
+        # A full amended report supersedes its original. Without the accession's
+        # period, favor well-covered near-period facts over later comparatives.
+        score = (same_report, near, pub if same_report else "", len(chosen), pub, currency, accession)
+        record = {"end": str(end), "start": start, "currency": currency, "filing": accession,
+                  "facts": chosen, "conflicts": conflicts, "period_kind": kind}
+        if info:
+            record["report"] = info
+        by_end[end].append((score, record))
+    result = [max(candidates, key=lambda pair: pair[0])[1] for _, candidates in sorted(by_end.items())]
+    if kind != "annual":
+        return result
     dedup = []
     for item in result:
-        if dedup and (date.fromisoformat(item["end"])-date.fromisoformat(dedup[-1]["end"])).days < 290:
+        if dedup and (date.fromisoformat(item["end"]) - date.fromisoformat(dedup[-1]["end"])).days < 290:
             if len(item["facts"]) >= len(dedup[-1]["facts"]):
                 dedup[-1] = item
         else:
             dedup.append(item)
     return dedup[-10:]
 
-def from_sec(payload, meta, asof, cik):
+def _group_sec(payload, meta, asof, cik, filings, kind):
     if int(payload["cik"]) != cik:
         raise ValueError("SEC payload CIK mismatch")
-    groups = defaultdict(lambda:defaultdict(list))
-    for ns in ("us-gaap","ifrs-full"):
+    groups = defaultdict(lambda: defaultdict(list))
+    forms = ANNUAL | REGISTRATION if kind == "annual" else INTERIM
+    for ns in ("us-gaap", "ifrs-full"):
         for tag, series in payload["facts"].get(ns, {}).items():
             if tag not in REVERSE:
                 continue
-            for cur, records in series["units"].items():
-                if not re.fullmatch("[A-Z]{3}", cur):
+            for unit, records in series["units"].items():
+                # Match a compatible monetary currency after we collect shares.
+                if not re.fullmatch(r"[A-Z]{3}(?:/shares)?|shares", unit):
                     continue
                 for x in records:
-                    if x.get("form") not in ANNUAL | {"S-1","S-1/A","F-1","F-1/A","424B4"}:
-                        continue
-                    if not x.get("filed") or not x.get("accn"):
+                    if x.get("form") not in forms or not x.get("filed") or not x.get("accn"):
                         continue
                     end = date.fromisoformat(x["end"])
                     filed = date.fromisoformat(x["filed"])
-                    if not 0 <= (asof-end).days <= 4400 or not end <= filed <= asof:
+                    if not 0 <= (asof - end).days <= 4400 or not end <= filed <= asof:
                         continue
                     start = date.fromisoformat(x["start"]) if x.get("start") else None
+                    accession = x["accn"]
+                    info = filings.get(accession)
+                    if kind != "annual" and info and info["end"] != str(end):
+                        continue
                     for metric, priority in REVERSE[tag]:
-                        if not qualifies(metric,start,end) or not math.isfinite(x["val"]):
+                        if not qualifies(metric, start, end, kind) or not math.isfinite(x["val"]):
                             continue
-                        a = x["accn"]
-                        groups[(end,cur,a)][metric].append({
-                            "value":x["val"],"tag":ns+":"+tag,"filed":str(filed),
-                            "start":str(start) if start else None,"accession":a,
-                            "form":x["form"],"priority":priority,
-                            "url":f"https://www.sec.gov/Archives/edgar/data/{cik}/{a.replace('-','')}/{a}-index.htm",
-                            "source":meta["url"],"sha256":meta["sha256"],
+                        if (metric in SHARE_FIELDS) != (unit == "shares") or (metric in EPS_FIELDS) != unit.endswith("/shares"):
+                            continue
+                        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession.replace('-', '')}/{accession}-index.htm"
+                        groups[(end, unit.split("/")[0], accession)][metric].append({
+                            "value": x["val"], "tag": ns + ":" + tag, "filed": str(filed), "unit": unit,
+                            "start": str(start) if start else None, "accession": accession, "form": x["form"],
+                            "priority": priority, "url": info["url"] if info else url,
+                            "source": meta["url"], "sha256": meta["sha256"],
                         })
-    return _assemble(groups, asof)
+    for (end, currency, accession), fields in list(groups.items()):
+        if currency != "shares":
+            fields.update(groups.get((end, "shares", accession), {}))
+    return {key: fields for key, fields in groups.items() if key[1] != "shares"}
+
+def from_sec(payload, meta, asof, cik, filings=None, kind="annual"):
+    filings = filings or {}
+    groups = _group_sec(payload, meta, asof, cik, filings, kind)
+    return _assemble(groups, filings, kind)
 
 def from_esef(entries, asof, lei):
     groups = defaultdict(lambda:defaultdict(list))
@@ -182,7 +271,7 @@ def from_esef(entries, asof, lei):
                         "url":"https://filings.xbrl.org"+attr["report_url"],
                         "source":meta["url"],"sha256":meta["sha256"],
                     })
-    return _assemble(groups, asof)
+    return _assemble(groups)
 
 def values(statement):
     return {key:x["value"] for key,x in statement.get("facts",{}).items()}

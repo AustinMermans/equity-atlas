@@ -10,9 +10,11 @@ import re
 import time
 
 from .catalog import CIKS, LEIS, classify, esef_list, sec_meta
-from .facts import STOCK, from_sec, from_esef
+from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, sec_filing_index
+from .edgar import annual_from_instance, instance_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
+from .market import load_taiwan
 
 def universe(blob, count, floor=None):
     rows=list(csv.DictReader(io.StringIO(blob.decode("utf-8-sig"))))
@@ -42,15 +44,50 @@ def universe(blob, count, floor=None):
         raise ValueError(f"requested {count} names but ranking has {len(parsed)} usable rows")
     return parsed
 
-def source_history(cache, cik, lei, day, sec_ttl_hours=36):
+def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
     choices=[]
     issues=[]
     entity=None
+    audit={}
     if cik:
         try:
             obj, meta=cache.json(SEC.format(cik),sec_ttl_hours)
             entity=obj["entityName"]
-            history=from_sec(obj,meta,day,cik)
+            filings={}
+            if audit_edgar:
+                try:
+                    submissions, _ = cache.json(sec_meta(cik), sec_ttl_hours)
+                    filings=sec_filing_index(submissions,cik,day)
+                    audit["metadata"]="verified"
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    audit["metadata"]="unavailable"
+                    issues.append(f"SEC submissions metadata: {exc}")
+            history=from_sec(obj,meta,day,cik,filings)
+            if audit_edgar:
+                annual=latest_filing(filings,ANNUAL)
+                interim=latest_filing(filings,INTERIM)
+                audit.update(latest_annual=annual,latest_interim=interim)
+                audit["annual_route"]="company_facts" if history else "unavailable"
+                if annual and (not history or history[-1]["end"] < annual["end"]):
+                    try:
+                        raw, instance_meta=cache.get(instance_url(annual),8760)
+                        extra=annual_from_instance(raw,instance_meta,annual,cik)
+                        if not extra:
+                            raise ValueError("No consolidated annual statement in extracted XBRL")
+                        history=[x for x in history if x["end"] < extra[-1]["end"]]+extra
+                        audit["annual_route"]="filing_instance"
+                    except (OSError, ValueError, KeyError, TypeError) as exc:
+                        audit["annual_route"]="latest_filing_gap"
+                        issues.append(f"SEC annual filed for {annual['end']}; extracted statement unavailable: {exc}")
+                if interim and (not history or interim["end"] > history[-1]["end"]):
+                    for kind in ("quarter","ytd"):
+                        periods=from_sec(obj,meta,day,cik,filings,kind)
+                        match=next((x for x in periods if x["filing"] == interim["accession"] and
+                                    x["end"] == interim["end"]),None)
+                        if match:
+                            audit[kind]=match
+                    if not audit.get("quarter") and not audit.get("ytd"):
+                        issues.append(f"SEC interim filed for {interim['end']}; compatible facts unavailable.")
             if history:
                 choices.append(("SEC",history,meta))
             else:
@@ -82,7 +119,7 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36):
         except (OSError,ValueError,KeyError,TypeError) as exc:
             issues.append(f"ESEF: {exc}")
     source, history, receipt=max(choices,key=lambda x:(x[1][-1]["end"],len(x[1]),x[0])) if choices else (None,[],None)
-    return {"entity_name":entity,"source":source,"history":history,"issues":issues,"receipt":receipt}
+    return {"entity_name":entity,"source":source,"history":history,"issues":issues,"receipt":receipt,"edgar":audit}
 
 def curated_history(symbol, day, curated):
     rec=curated.get(symbol)
@@ -115,7 +152,7 @@ def list_public(public_csv):
     rows=list(csv.DictReader(Path(public_csv).open()))
     return {r["symbol"]:r for r in rows}
 
-def make_public(cache, csv_path, out, day):
+def make_public(cache, csv_path, out, day, open_market=False):
     public=list_public(csv_path)
     ciks={int(x["cik"]) for x in public.values()}
     # Probe the official route before attempting the entire list. One blocked
@@ -127,28 +164,77 @@ def make_public(cache, csv_path, out, day):
             raise ValueError("SEC preflight CIK mismatch")
     except (OSError,ValueError,KeyError,TypeError) as exc:
         raise RuntimeError(f"SEC Company Facts preflight failed: {exc}") from exc
-    sources=parallel(sorted(ciks),lambda cik:source_history(cache,cik,None,day,18))
+    sources=parallel(sorted(ciks),lambda cik:source_history(cache,cik,None,day,18,audit_edgar=True))
     rows=[]
+    market_sources=None
+    taiwan={}
+    if open_market:
+        market_rows, market_sources=load_taiwan(cache,day)
+        taiwan={r["code"]:r for r in market_rows}
     for symbol, entry in sorted(public.items()):
         cik=int(entry["cik"])
         payload,err=sources[cik]
         h=(payload or {}).get("history",[])
+        selected_source="SEC"
+        if symbol=="TSM" and "2330" in taiwan:
+            seeds=json.loads((Path(__file__).resolve().parent.parent/"issuer-annual.json").read_text())
+            extra=curated_history(symbol,day,seeds)
+            if extra and (not h or h[-1]["end"] < extra[-1]["end"]):
+                h=[x for x in h if x["end"] < extra[0]["end"]]+extra
+                selected_source="Issuer"
         s=h[-1] if h else None
         k,g,why=classify(symbol,int(entry.get("sic") or 0))
         row={"id":f"sec:{cik:010d}","name":entry["name"],
              "symbol":symbol,"country":entry.get("country",""),"kind":k,"peer_group":g,
-             "classification":why,"source":"SEC" if s else None,"statement":s,
+             "classification":why,"source":selected_source if s else None,"statement":s,
              "history":[{"end":x["end"],"currency":x["currency"],
                          "facts":{m:{"value":x["facts"][m]["value"]} for m in ("sales","ebit") if m in x["facts"]}}
                         for x in h],
-             "issues":(payload or {}).get("issues",[]) + ([err] if err else []),"accounting":accounting(h)}
+             "issues":(payload or {}).get("issues",[]) + ([err] if err else []),"accounting":accounting(h),
+             "edgar":(payload or {}).get("edgar",{})}
+        if symbol=="TSM" and "2330" in taiwan:
+            market=taiwan.pop("2330")
+            row["market"]=market
+            row["country"]="Taiwan"
+            fx=market_sources["fx"]
+            if fx and s and s["currency"]=="TWD":
+                # Spot market inputs are measured on the close date. Only statements
+                # already published on that date may enter the modeled comparisons.
+                quote_day=date.fromisoformat(market["date"])
+                knowable=[x for x in h if all(f["filed"]<=market["date"] for f in x["facts"].values())]
+                if knowable and knowable[-1]["end"]==s["end"]:
+                    case=prepare({**row,"market_cap_usd":market["estimated_cap_usd"],"as_of":market["date"]},
+                                 knowable,{"TWD":fx},quote_day)
+                    row.update(models=fit(case,[case]),ratios=case["ratios"],cycle=case["cycle"])
         rows.append(row)
-    if not any(r["statement"] for r in rows):
+    sec_rows=list(rows)
+    for quote in taiwan.values():
+        rows.append({"id":f"xtai:{quote['code']}","symbol":quote["code"]+".TW","name":quote["name"],
+                     "country":"Taiwan","kind":"unknown","peer_group":"TWSE issuer registry",
+                     "classification":"Public exchange record","source":None,"statement":None,
+                     "market":quote,"issues":["Normalized annual filings are pending for this Taiwan issuer."]})
+    rows.sort(key=lambda r:r["symbol"])
+    if not any(r["statement"] for r in sec_rows):
         raise RuntimeError("Public dataset has no qualifying filings; refusing to replace the deployed snapshot")
-    data={"mode":"public_fundamentals","policy_version":VERSION,"as_of":str(day),"generated_at":datetime.now(timezone.utc).isoformat(),
-          "source":"SEC EDGAR company facts; public issuer list is alphabetical and has no rankings or market data.",
-          "stats":{"issuers":len(rows),"fresh":sum(bool(r["statement"] and (day-date.fromisoformat(r["statement"]["end"])).days<=465) for r in rows)},
+    def fresh(r):
+        return bool(r["statement"] and 0 <= (day-date.fromisoformat(r["statement"]["end"])).days <= 465)
+    verified=[r for r in sec_rows if r["edgar"].get("metadata")=="verified"]
+    latest=[r for r in verified if r["edgar"].get("latest_annual")]
+    coverage={
+        "sec_issuers":len(sec_rows), "metadata_verified":len(verified),
+        "latest_annual_expected":len(latest),
+        "latest_annual_extracted":sum(bool(r["source"]=="SEC" and r["statement"] and
+                                   r["statement"]["end"]==r["edgar"]["latest_annual"]["end"]) for r in latest),
+        "interim_available":sum(bool(r["edgar"].get("quarter") or r["edgar"].get("ytd")) for r in sec_rows),
+    }
+    data={"mode":"public_market" if open_market else "public_fundamentals",
+          "policy_version":VERSION,"as_of":str(day),"generated_at":datetime.now(timezone.utc).isoformat(),
+          "source":"SEC EDGAR filings and official exchange inputs" if open_market else "SEC EDGAR filings",
+          "stats":{"issuers":len(rows),"fresh":sum(fresh(r) for r in sec_rows),
+                   "priced":sum(bool(r.get("market")) for r in rows), **coverage},
           "rows":rows}
+    if open_market:
+        data["market_sources"]=market_sources
     # Keep Pages payload compact; line-oriented audit data stays local.
     render(out,data)
     return data

@@ -5,7 +5,7 @@
 <meta name="description" content="A source-linked equity research screener built around CFA valuation methods.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%238ee1c1%27/%3E%3Cpath d=%27M6 22h4v4H6zm8-7h4v11h-4zm8-9h4v20h-4z%27 fill=%27%23112720%27/%3E%3C/svg%3E">
 <title>Equity Atlas · Research terminal</title><link rel="stylesheet" href="style.css">
-<script src="app.js" defer></script>
+<script src="app.js?v=20261109-open" defer></script>
 </head>
 <body>
 <header class="top"><div class="brand"><span class="mark" aria-hidden="true">EA</span><span>Equity Atlas<small>RESEARCH TERMINAL</small></span></div>
@@ -14,16 +14,16 @@
 <section class="hero"><div class="eyebrow"><i></i><span id="edition">EQUITY RESEARCH</span></div><h1>Company screener</h1><p id="subtitle">Source-linked financials and valuation methods that match the business.</p></section>
 <div class="metrics" id="metrics" aria-label="Coverage"></div>
 <section class="board" aria-label="Company list">
-<div class="boardtop"><div><h2>Company universe</h2><p id="scope" role="status">Loading snapshot…</p></div><button type="button" id="reset">Clear filters</button></div>
+<div class="boardtop"><div><h2>Company universe</h2><p id="scope" role="status">Loading current data…</p></div><button type="button" id="reset">Clear filters</button></div>
 <div class="filters"><label class="search"><span>Find a company</span><input type="search" id="search" placeholder="Company, ticker or country"></label>
 <label><span>Business</span><select id="kind"><option value="">All business types</option></select></label>
-<label><span>Coverage</span><select id="coverage"><option value="">All coverage</option><option value="fresh">Recent statements</option><option value="missing">Missing or stale</option><option value="valued">Has lead model</option></select></label>
+<label><span>Coverage</span><select id="coverage"><option value="">All coverage</option><option value="fresh">Recent statements</option><option value="missing">Missing or stale</option><option value="priced">Has exchange price</option><option value="valued">Has lead model</option></select></label>
 <label id="segment-label" hidden><span>Company condition</span><select id="segment"><option value="">All conditions</option><option value="loss">Reported loss</option><option value="dividends">Stable dividend</option><option value="peak">Above historical range</option><option value="trough">Below historical range</option><option value="high_growth">High historical growth</option></select></label>
 <label><span>Sort by</span><select id="order"><option value="rank">Market cap</option><option value="name">Company name</option><option value="gap">Lead model gap</option></select></label></div>
 <div class="tablewrap"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
 <div class="pager"><span id="paging"></span><div><button type="button" id="prev">Previous</button><button type="button" id="next">Next</button></div></div>
 </section>
-<footer><span>Equity Atlas · Research estimates, filings, and source coverage</span><span id="stamp"></span></footer>
+<footer><span>Equity Atlas · Research estimates, filings, and source coverage</span><span id="stamp"></span><span id="attribution"></span></footer>
 </main>
 <dialog id="detail" aria-labelledby="detail-title"><div class="dialogbar"><strong id="detail-title"></strong><button type="button" id="close" aria-label="Close details">Close</button></div><div id="content"></div></dialog>
 </body></html>

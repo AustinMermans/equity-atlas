@@ -14,14 +14,17 @@ def main():
     choice.add_argument("--limit",type=int)
     choice.add_argument("--floor",type=float,help="minimum market cap in USD")
     choice.add_argument("--public",metavar="ISSUERS_CSV",help="SEC filings-only site; no rank or quote data")
+    p.add_argument("--open-market",action="store_true",help="Add Taiwan exchange data to the public site")
     p.add_argument("--ranking",help="optional local USD market-cap CSV; use source schema in README")
     p.add_argument("--overrides",help="local evidence-linked NAV or FCFE inputs")
     args=p.parse_args()
     cache=Cache(args.cache,args.offline)
+    if args.open_market and not args.public:
+        p.error("--open-market requires --public")
     if args.public:
         if args.ranking or args.overrides:
             p.error("Public builds cannot read market rankings or local overrides")
-        data=make_public(cache,args.public,args.out,datetime.now(timezone.utc).date())
+        data=make_public(cache,args.public,args.out,datetime.now(timezone.utc).date(),args.open_market)
     else:
         if (args.limit is not None and args.limit<=0) or (args.floor is not None and args.floor<=0):
             p.error("Limit and floor must be positive")

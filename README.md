@@ -2,7 +2,7 @@
 
 Equity Atlas is a company screener with a deterministic CFA valuation engine. It separates the company universe, reported facts, model suitability, estimates, and the evidence behind each result. A blocked model carries a reason.
 
-- **Public:** [Equity Atlas on GitHub Pages](https://austinmermans.github.io/equity-atlas/) opens SEC financials, issuer history, and filing links. Importing a private snapshot happens entirely in the browser tab. Public builds never read or publish market ranks, market caps, quotes, caches, or personal overrides.
+- **Public:** [Equity Atlas on GitHub Pages](https://austinmermans.github.io/equity-atlas/) shows official Taiwan exchange closes, capitalization estimates and exchange multiples for 50 issuers alongside SEC filings for 170 issuers. The scheduled build obtains its inputs directly from official sources. Optional local imports stay in the browser.
 - **Local:** The valuation edition includes market capitalization, reported ratios, model decisions, scenario ranges, and a cycle view. It runs with Python 3.11+ and has no runtime packages.
 
 ```sh
@@ -16,10 +16,10 @@ Open http://127.0.0.1:8764, or use **Open snapshot** at the Pages site and selec
 
 ```sh
 python3 -m unittest discover -s tests -v
-python3 -m equity_atlas --public public-issuers.csv --out data/public-site
+python3 -m equity_atlas --public public-issuers.csv --open-market --out data/public-site
 python3 scripts/verify_public.py data/public-site/snapshot.json
 ```
 
-The public workflow runs weekdays at 10:23 UTC and supports a manual refresh. A build that falls below 80% recent annual coverage fails before deployment. The public view carries the actual build date. For a scheduled local market run, use `scripts/refresh-market.sh` with the same SEC user agent, optionally `ATLAS_LIMIT` and `ATLAS_RANKING`. It preserves dated run outputs and updates `data/latest` only on success. Set the working directory and interpreter path explicitly in any external scheduler.
+The public workflow runs weekdays at 10:23 UTC and supports a manual refresh. A build that falls below 80% recent annual coverage fails before deployment. The public view carries the build date, quote date, and filing periods independently. For a scheduled local market run, use `scripts/refresh-market.sh` with the same SEC user agent, optionally `ATLAS_LIMIT` and `ATLAS_RANKING`. It preserves dated run outputs and updates `data/latest` only on success. Set the working directory and interpreter path explicitly in any external scheduler.
 
 See [methodology](docs/methodology.md), [source and scaling notes](docs/pipeline.md), and the [pilot review](docs/pilot-review.md).

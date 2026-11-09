@@ -14,6 +14,8 @@ on:
       - 'site/**'
       - 'equity_atlas/**'
       - 'public-issuers.csv'
+      - 'issuer-annual.json'
+      - 'scripts/verify_public.py'
       - '.github/workflows/pages.yml'
 permissions:
   contents: read
@@ -33,7 +35,7 @@ jobs:
           python-version: '3.12'
       - name: Test finance and source invariants
         run: python -m unittest discover -s tests -v
-      - name: Build public filings edition
+      - name: Build public market and filings edition
         env:
           ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || 'Equity Atlas research (local prototype)' }}
           BOOTSTRAP: ${{ inputs.bootstrap || 'false' }}
@@ -42,7 +44,7 @@ jobs:
             mkdir -p _site
             cp site/index.html site/app.js site/style.css public-seed/snapshot.json _site/
           else
-            python -m equity_atlas --public public-issuers.csv --out _site
+            python -m equity_atlas --public public-issuers.csv --open-market --out _site
           fi
           python scripts/verify_public.py _site/snapshot.json
       - name: Upload Pages artifact

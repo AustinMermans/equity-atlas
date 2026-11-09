@@ -116,10 +116,42 @@ def cycle_read(history, kind):
 def debt_amount(v):
     if "debt_total" in v:
         return v["debt_total"]
+    if {"debt_current_total","debt_noncurrent"} <= v.keys():
+        return v["debt_current_total"] + v["debt_noncurrent"]
     debt=v.get("debt")
     if debt is None and {"debt_current","debt_noncurrent"} <= v.keys():
         debt=v["debt_current"]+v["debt_noncurrent"]
     return debt+v.get("short_borrow",0) if debt is not None else None
+
+def common_book(v):
+    if "common_book" in v:
+        return v["common_book"]
+    return v["book"] - v.get("preferred",0) if "book" in v else None
+
+def common_earnings(v, tag):
+    if "net_common" in v:
+        return v["net_common"]
+    if {"net_parent","preferred_earnings_adjustment"} <= v.keys():
+        return v["net_parent"] - v["preferred_earnings_adjustment"]
+    if tag in {"ifrs-full:ProfitLoss","us-gaap:ProfitLoss","issuer:consolidated:net"}:
+        return None
+    if v.get("preferred",0)>0 and "AvailableToCommon" not in tag:
+        return None
+    return v.get("net")
+
+def common_dividends(statement):
+    v=values(statement)
+    fact=statement["facts"].get("div",{})
+    if fact.get("tag","").split(":")[-1] in {"PaymentsOfDividendsCommonStock","PaymentsOfOrdinaryShareDividends"}:
+        return v["div"]
+    minority=v.get("minority",v.get("total_equity",0)-v.get("book",0) if "total_equity" in v else 0)
+    if minority>0:
+        return None
+    if v.get("preferred",0)>0:
+        if {"div_total","div_preferred_paid"} <= v.keys() and v["div_total"] >= v["div_preferred_paid"]:
+            return v["div_total"] - v["div_preferred_paid"]
+        return None
+    return v.get("div")
 
 def observed(case):
     """Raw ratios in issuer dollars. No division by missing/nonpositive fundamentals."""
@@ -129,13 +161,8 @@ def observed(case):
     if fx is None or not case["fresh"]:
         return {},None
     equity=market*fx
-    book=v.get("book")
-    if book is not None and "preferred" in v:
-        book -= v["preferred"]
-    net=v.get("net")
-    if (case["net_tag"] in {"ifrs-full:ProfitLoss","issuer:consolidated:net"} or
-        (net is not None and v.get("preferred",0)>0 and "AvailableToCommon" not in case["net_tag"])):
-        net=None
+    book=common_book(v)
+    net=common_earnings(v,case["net_tag"])
     # No silent zero for debt or cash. Equity delta can measure NCI when both are disclosed.
     debt=debt_amount(v)
     minority=v.get("minority")
@@ -191,12 +218,16 @@ def comparable_profiles(target, candidate):
 
 def clean_surplus(history):
     checks=[]
-    for before,after in zip(history[-4:],history[-3:]) if len(history)>=4 else zip(history,history[1:]):
+    recent=history[-4:]
+    for before,after in zip(recent,recent[1:]):
         a,b=values(before),values(after)
-        if a.get("book",0)<=0 or not {"book","net","div"}<=b.keys():
+        start,end=common_book(a),common_book(b)
+        net=common_earnings(b,after["facts"].get("net",{}).get("tag",""))
+        dividend=common_dividends(after)
+        if start is None or start<=0 or end is None or net is None or dividend is None:
             continue
-        expected=a["book"]+b["net"]-b["div"]+b.get("issuance",0)-b.get("buybacks",0)
-        checks.append((b["book"]-expected)/a["book"])
+        expected=start+net-dividend+b.get("issuance",0)-b.get("buybacks",0)
+        checks.append((end-expected)/start)
     return checks
 
 def fit(case, peers, override=None):
@@ -249,11 +280,8 @@ def fit(case, peers, override=None):
             block(method,"No usable as-of conversion to USD.")
     if len(results)==len(NAMES):
         return finish(case, results)
-    net=v.get("net")
-    book=v.get("book",0)-v.get("preferred",0)
-    if (case["net_tag"] in {"ifrs-full:ProfitLoss","issuer:consolidated:net"} or
-        (v.get("preferred",0)>0 and "AvailableToCommon" not in case["net_tag"])):
-        net=None
+    net=common_earnings(v,case["net_tag"])
+    book=common_book(v) or 0
     reported_net=v.get("net")
     earnings_state=("loss" if reported_net is not None and reported_net<0 else
                     "unknown common earnings" if net is None else "profit" if net>0 else "break-even")
@@ -296,15 +324,15 @@ def fit(case, peers, override=None):
             block("comps","Requires a usable denominator and ≥3 same-group peers with compatible accounting, period, size and profitability.")
     checks=clean_surplus(h)
     case["book_rollforward_residuals"]=checks
-    roes=[b["net"]/a["book"] for a,b in zip(hist,hist[1:]) if a.get("book",0)>0 and "net" in b and not (a.get("preferred",0) or b.get("preferred",0))]
+    books=[common_book(x) for x in hist]
+    earnings=[common_earnings(x, row["facts"].get("net",{}).get("tag","")) for x,row in zip(hist,h)]
+    roes=[income/start for start,income in zip(books,earnings[1:]) if start and start>0 and income is not None]
     roe=median(roes[-5:]) if len(roes)>=3 else None
     terminal_roe=max(.07,min(.20,roe)) if roe is not None else None
     for method in ("ri_single","ri_multi","pb_ggm"):
         if method in results:
             continue
-        if v.get("preferred",0)>0:
-            block(method,"Preferred equity present; reconcile common book, earnings, and capital actions first.")
-        elif book<=0 or terminal_roe is None or roe<=0:
+        if book<=0 or terminal_roe is None or roe<=0:
             block(method,"Needs positive common book and ≥3 transitions to a defensible long-run ROE.")
         elif len(checks)<2 or max(map(abs,checks))>.05:
             block(method,"Unexplained book roll-forward exceeds 5% or fewer than two transitions can be checked.")
@@ -316,7 +344,7 @@ def fit(case, peers, override=None):
                   "justified_p_b":(terminal_roe-g)/(re-g),"market_implied_roe":g+(re-g)*market*fx/book},
                  "Same clean-surplus economics for justified P/B and single-stage RI.")
         else:
-            prev=hist[-2].get("book",0)
+            prev=books[-2] or 0
             current=net/prev if net is not None and prev>0 else roe
             if not -.5<=current<=.5:
                 block(method,"Current ROE outside calibrated range; needs a company-specific transition.")
@@ -325,32 +353,33 @@ def fit(case, peers, override=None):
             calc(method,lambda d,x:ri_multi(book,path,[min(.8,(g+x)/terminal_roe)]*5,re+d,terminal_roe,g+x),
                  {"book":book,"roe_path":path,"terminal_roe":terminal_roe,"re":re,"g":g},
                  "Five-year fade in ROE with funded terminal growth; common equity basis.")
-    dividends=[row.get("div") for row in hist[-5:]]
+    dividends=[common_dividends(row) for row in h[-5:]]
+    dividend=dividends[-1] if dividends else None
     stable=len(dividends)>=4 and all(x is not None and x>0 for x in dividends) and all(b>=.8*a for a,b in zip(dividends,dividends[1:]))
-    payout=v.get("div",0)/net if net is not None and net>0 else None
-    case["dividend_state"]="stable payer" if stable else ("reported payout; unstable or short history" if v.get("div",0)>0 else ("no reported cash dividend" if "div" in v else "dividend evidence unavailable"))
+    payout=dividend/net if dividend is not None and net is not None and net>0 else None
+    case["dividend_state"]="stable payer" if stable else ("reported payout; unstable or short history" if dividend else ("no reported cash dividend" if dividend==0 else "dividend evidence unavailable"))
     for method in ("ddm","ddm_ggm","pe_ggm"):
         if method in results:
             continue
-        if not stable or payout is None or not .10<=payout<=.90 or v.get("preferred",0)>0:
+        if not stable or payout is None or not .10<=payout<=.90:
             block(method,"Needs 4+ regular dividends, positive common earnings, and a sustainable 10–90% payout.")
         elif method!="ddm" and (case["growth_state"]=="high historical growth" or
-                (v.get("buybacks",0)>v.get("div",0))):
+                (v.get("buybacks",0)>dividend)):
             block(method,"Rapid growth or repurchase-heavy distribution makes stable dividend payout unsuitable.")
-        elif method=="ddm" and v.get("buybacks",0)>2*v.get("div",0):
+        elif method=="ddm" and v.get("buybacks",0)>2*dividend:
             block(method,"Repurchases dominate distributions; dividend cash flows omit material capital returns.")
         elif method=="ddm":
-            path=[v["div"]]
+            path=[dividend]
             for i in range(1,6):
                 path.append(path[-1]*(1+short_growth+(g-short_growth)*i/5))
             calc(method,lambda d,x:ddm(path[1:],re+d,g+x),
                  {"d0":path[0],"dividend_path":path[1:],"payout":payout,"re":re,"g":g},
                  "Five-year transition from capped historical sales growth to terminal dividend growth.")
         else:
-            calc(method,lambda d,x:perp(v["div"]*(1+g+x),re+d,g+x),
-                 {"dividends":v["div"],"forward_earnings":net*(1+g),"payout":payout,"re":re,"g":g,
+            calc(method,lambda d,x:perp(dividend*(1+g+x),re+d,g+x),
+                 {"dividends":dividend,"forward_earnings":net*(1+g),"payout":payout,"re":re,"g":g,
                   "justified_forward_pe":payout/(re-g),
-                  "market_implied_dividend_growth":(market*fx*re-v["div"])/(market*fx+v["div"])},
+                  "market_implied_dividend_growth":(market*fx*re-dividend)/(market*fx+dividend)},
                  "Gordon economics: justified forward P/E equals payout divided by (required return − growth).")
     if "fcff" not in results:
         bridge=case["bridge"]

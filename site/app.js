@@ -8,24 +8,26 @@ const pct=x=>Number.isFinite(x)?(x>0?'+':'')+n2.format(100*x)+'%':'—';
 const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—';
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
-const fieldNames={sales:'Revenue',net:'Net income',ebit:'Operating profit',book:'Parent equity',cash:'Cash and equivalents',cfo:'Operating cash flow',capex:'Cash capital investment',div:'Cash dividends',assets:'Total assets',liabilities:'Total liabilities'};
+const fieldNames={sales:'Revenue',net:'Earnings used by Atlas',net_common:'Earnings available to common',net_parent:'Net income attributable to parent',net_consolidated:'Consolidated net income',common_book:'Common shareholders’ equity',preferred:'Preferred carrying value',preferred_liquidation:'Preferred liquidation preference',contract_sales:'Contract revenue',div_total:'Total cash dividends paid',div_common_declared:'Common cash dividends declared',da:'Depreciation and amortization',ebit:'Operating profit',book:'Parent equity',cash:'Cash and equivalents',cfo:'Operating cash flow',capex:'Cash capital investment',div:'Cash dividends',assets:'Total assets',liabilities:'Total liabilities'};
 const field=x=>fieldNames[x]||x.replaceAll('_',' ');
 let snapshot=null,page=0,visible=[];
 const size=25;
 
 function setData(data) {
- if(!data || !Array.isArray(data.rows) || !data.stats || !['private_market','public_fundamentals'].includes(data.mode) || data.rows.some(r=>typeof r.symbol!=='string'||typeof r.name!=='string')) throw Error('This file is not an Equity Atlas snapshot.');
+ if(!data || !Array.isArray(data.rows) || !data.stats || !['private_market','public_fundamentals','public_market'].includes(data.mode) || data.rows.some(r=>typeof r.symbol!=='string'||typeof r.name!=='string')) throw Error('This file is not an Equity Atlas snapshot.');
  snapshot=data;page=0;
- const market=data.mode==='private_market', s=data.stats;
- $('edition').textContent=(market?'MARKET SNAPSHOT':'PUBLIC FILINGS')+'  /  '+data.as_of;
- $('subtitle').textContent=market?'Compare market prices, financial statements, and CFA valuation scenarios by business type.':'Explore annual filings and financial history. Open a locally generated snapshot to compare market valuations.';
+ const market=data.mode==='private_market', openMarket=data.mode==='public_market', s=data.stats;
+ $('edition').textContent=(openMarket?'PUBLIC MARKET DATA':market?'MARKET SNAPSHOT':'PUBLIC FILINGS')+'  /  '+data.as_of;
+ $('subtitle').textContent=openMarket?'Taiwan exchange closes and valuation multiples alongside source-linked EDGAR filings.':market?'Compare market prices, financial statements, and CFA valuation scenarios by business type.':'Explore annual filings and financial history. Open a locally generated snapshot to compare market valuations.';
  $('stamp').textContent='Rules '+data.policy_version+' · '+data.as_of;
- const tiles=market?[['Companies',s.issuers,'One row per issuer'],['Recent statements',s.fresh,'Within 465 days of snapshot'],['Lead valuations',s.selected,'Passed model checks'],['Cycle reads',s.normalized,'Operating margin vs. prior years']]:[['Companies',s.issuers,'SEC filing universe'],['Recent statements',s.fresh,'Within 465 days'],['Market data','Local','Open your own snapshot'],['Source','SEC','Company Facts']];
+ $('attribution').innerHTML=openMarket?'<a href="https://data.gov.tw/en/license">Taiwan Stock Exchange and Financial Supervisory Commission · Open Government Data License 1.0</a> · <a href="https://www.cbc.gov.tw/en/cp-510-1865-DA249-2.html">Central Bank of Taiwan FX</a>':'';
+ const tiles=openMarket?[['Exchange prices',s.priced,'Taiwan close · '+data.market_sources.date],['SEC issuers',s.sec_issuers,'EDGAR issuer coverage'],['Latest annual extracted',s.latest_annual_extracted+' / '+s.latest_annual_expected,'Compared with SEC submissions'],['Recent interim filings',s.interim_available,'Quarter or year-to-date data']]:market?[['Companies',s.issuers,'One row per issuer'],['Recent statements',s.fresh,'Within 465 days of snapshot'],['Lead valuations',s.selected,'Passed model checks'],['Cycle reads',s.normalized,'Operating margin vs. prior years']]:[['Companies',s.issuers,'SEC filing universe'],['Recent statements',s.fresh,'Within 465 days'],['Market data','Local','Open your own snapshot'],['Source','SEC','Company Facts']];
  $('metrics').innerHTML=tiles.map(([t,v,h])=>'<div class="metric"><small>'+esc(t)+'</small><strong>'+esc(v)+'</strong><small class="hint">'+esc(h)+'</small></div>').join('');
  const kinds=[...new Set(data.rows.map(r=>r.kind))].sort((a,b)=>label(a).localeCompare(label(b)));
  $('kind').innerHTML='<option value="">All business types</option>'+kinds.map(k=>'<option value="'+esc(k)+'">'+esc(label(k))+'</option>').join('');
- $('order').innerHTML=market?'<option value="rank">Market cap</option><option value="name">Company name</option><option value="gap">Lead model gap</option>':'<option value="name">Company name</option><option value="new">Latest fiscal period</option>';
- $('coverage').querySelector('[value="valued"]').hidden=!market;
+ $('order').innerHTML=openMarket?'<option value="exchange">Taiwan market cap</option><option value="name">Company name</option><option value="new">Latest fiscal year</option>':market?'<option value="rank">Market cap</option><option value="name">Company name</option><option value="gap">Lead model gap</option>':'<option value="name">Company name</option><option value="new">Latest fiscal period</option>';
+ $('coverage').querySelector('[value="valued"]').hidden=!(market||openMarket);
+ $('coverage').querySelector('[value="priced"]').hidden=!openMarket;
  $('segment-label').hidden=!market;
  $('segment-label').parentElement.classList.toggle('market',market);
  clearFilters();
@@ -38,14 +40,14 @@ function clearFilters() {
 }
 function render() {
  if(!snapshot)return;
- const market=snapshot.mode==='private_market';
+ const market=snapshot.mode==='private_market', openMarket=snapshot.mode==='public_market';
  const query=$('search').value.toLowerCase().trim(),kind=$('kind').value,cov=$('coverage').value,order=$('order').value,segment=$('segment').value;
  const segmentPass=r=>!segment||({loss:r.earnings_state==='loss',dividends:r.dividend_state==='stable payer',
   peak:r.cycle?.phase==='above historical range',trough:r.cycle?.phase==='below historical range',
   high_growth:r.growth_state==='high historical growth'}[segment]);
- visible=snapshot.rows.filter(r=>segmentPass(r)&&(!kind||r.kind===kind)&&(!query||[r.name,r.symbol,r.country,r.peer_group].join(' ').toLowerCase().includes(query))&&(!cov||(cov==='fresh'&&isFresh(r))||(cov==='missing'&&!isFresh(r))||(cov==='valued'&&best(r))));
- visible.sort((a,b)=>order==='gap'?((best(b)?.gap??-Infinity)-(best(a)?.gap??-Infinity)||a.rank-b.rank):order==='rank'?a.rank-b.rank:order==='new'?(b.statement?.end??'').localeCompare(a.statement?.end??'')||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
- const titles=market?['#','Company','Business','Market cap','Fiscal end','Cycle position','Lead valuation','Gap']:['Company','Business','Accounting','Fiscal end','Revenue','Net income','Filing'];
+ visible=snapshot.rows.filter(r=>segmentPass(r)&&(!kind||r.kind===kind)&&(!query||[r.name,r.symbol,r.country,r.peer_group,r.market?.code,r.market?.local_name].join(' ').toLowerCase().includes(query))&&(!cov||(cov==='fresh'&&isFresh(r))||(cov==='missing'&&!isFresh(r))||(cov==='valued'&&best(r))||(cov==='priced'&&r.market)));
+ visible.sort((a,b)=>order==='exchange'?((a.market?.rank??Infinity)-(b.market?.rank??Infinity)||a.name.localeCompare(b.name)):order==='gap'?((best(b)?.gap??-Infinity)-(best(a)?.gap??-Infinity)||a.rank-b.rank):order==='rank'?a.rank-b.rank:order==='new'?(b.statement?.end??'').localeCompare(a.statement?.end??'')||a.name.localeCompare(b.name):a.name.localeCompare(b.name));
+ const titles=openMarket?['Company','TWSE close','Est. equity cap','P/E · TWSE','P/B · TWSE','Fiscal year','Revenue','Earnings','Interim']:market?['#','Company','Business','Market cap','Fiscal end','Cycle position','Lead valuation','Gap']:['Company','Business','Accounting','Fiscal end','Revenue','Net income','Filing'];
  $('head').innerHTML='<tr>'+titles.map(t=>'<th scope="col">'+t+'</th>').join('')+'</tr>';
  const start=page*size;
  $('body').innerHTML=visible.slice(start,start+size).map((r,i)=>{
@@ -53,18 +55,26 @@ function render() {
    const period=st?'<span class="'+(isFresh(r)?'minor':'pill warn')+'">'+esc(st.end)+'</span>':'<span class="pill warn">Missing</span>';
    const curr=st?.currency||'';
    const reported=k=>Number.isFinite(st?.facts?.[k]?.value)?esc(curr)+' '+money.format(st.facts[k].value):'—';
-   const cells=market?[esc(r.rank),symbol,esc(label(r.kind)),usd(r.market_cap_usd),period,esc(r.cycle?.phase==='not classified cyclical'?'—':r.cycle?.phase),m?esc(m.label):'<span class="minor">No lead estimate</span>',m?'<span class="'+(m.gap>=0?'up':'down')+'">'+pct(m.gap)+'</span>':'—']:[symbol,esc(label(r.kind)),esc(r.accounting||'—'),period,reported('sales'),reported('net'),st?'<span class="pill">EDGAR</span>':'—'];
+   const q=r.market;
+   const quoteMultiple=key=>Number.isFinite(q?.exchange_multiples?.[key])?n2.format(q.exchange_multiples[key])+'×':'—';
+   const cells=openMarket?[symbol,q?'NT$'+n2.format(q.close):'—',q?'NT$'+money.format(q.estimated_cap_twd):'—',quoteMultiple('P/E'),quoteMultiple('P/B'),period,reported('sales'),reported('net'),esc(r.edgar?.quarter?.end||r.edgar?.ytd?.end||'—')]:market?[esc(r.rank),symbol,esc(label(r.kind)),usd(r.market_cap_usd),period,esc(r.cycle?.phase==='not classified cyclical'?'—':r.cycle?.phase),m?esc(m.label):'<span class="minor">No lead estimate</span>',m?'<span class="'+(m.gap>=0?'up':'down')+'">'+pct(m.gap)+'</span>':'—']:[symbol,esc(label(r.kind)),esc(r.accounting||'—'),period,reported('sales'),reported('net'),st?'<span class="pill">EDGAR</span>':'—'];
    return '<tr>'+cells.map(t=>'<td>'+t+'</td>').join('')+'</tr>';
  }).join('')||'<tr><td class="empty" colspan="'+titles.length+'">No companies match these filters.</td></tr>';
- $('scope').textContent=visible.length+' of '+snapshot.rows.length+' companies'+(market?' · USD market caps':' · SEC company facts');
+ $('scope').textContent=visible.length+' of '+snapshot.rows.length+' companies'+(openMarket?' · Taiwan market data and EDGAR filings':market?' · USD market caps':' · SEC company facts');
  $('paging').textContent=visible.length?(start+1)+'–'+Math.min(start+size,visible.length)+' of '+visible.length:'0 results';
  $('prev').disabled=page===0;$('next').disabled=start+size>=visible.length;
 }
 function detail(r) {
- const st=r.statement,m=best(r),cycle=r.cycle||{}, curr=st?.currency??'';
+ const st=r.statement,m=best(r),cycle=r.cycle||{};
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+n2.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span></td></tr>').join(''):'';
+ const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+ const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
+ const q=r.market;
+ const marketDetail=q?'<h3>Taiwan Stock Exchange</h3><p>'+esc(q.code)+' · NT$'+n2.format(q.close)+' close on '+esc(q.date)+'. Estimated common equity cap NT$'+money.format(q.estimated_cap_twd)+' uses '+n2.format(q.issued_shares)+' issued shares from '+esc(q.shares_date)+'.</p><p><a href="https://data.gov.tw/en/datasets/11549">Closing prices</a> · <a href="https://data.gov.tw/en/datasets/18419">Issuer registry</a> · <a href="https://data.gov.tw/dataset/11764">Exchange multiples</a></p>':'';
+ const audit=r.edgar?.latest_annual?'<p>Latest annual filing in SEC submissions: <a href="'+safeUrl(r.edgar.latest_annual.url)+'" target="_blank" rel="noopener noreferrer">'+esc(r.edgar.latest_annual.end)+'</a>.</p>':'';
  const percentInputs=new Set(['re','g','roe','wacc','payout','terminal_roic','terminal_roe','tax','capex_sales','da_sales','nwc_sales_proxy','growth_start','ebit_margin','target_margin','fcfe_sales','market_implied_dividend_growth','market_implied_terminal_ebit_margin','market_implied_roe']);
  const dl=obj=>'<dl class="fields">'+Object.entries(obj).map(([k,v])=>'<dt>'+esc(field(k))+'</dt><dd>'+esc(Array.isArray(v)?v.map(x=>typeof x==='number'?n2.format(x):x).join(', '):typeof v==='number'?(percentInputs.has(k)?pct(v):n2.format(v)):v)+'</dd>').join('')+'</dl>';
- const sources=st?Object.entries(st.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(curr)+' '+n2.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span></td></tr>').join(''):'';
+ const sources=factRows(st);
  const margins=(r.history||[]).flatMap(h=>h.facts.sales?.value>0&&Number.isFinite(h.facts.ebit?.value)?[[h.end.slice(0,4),h.facts.ebit.value/h.facts.sales.value]]:[]);
  const max=Math.max(.1,...margins.map(x=>Math.abs(x[1])));
  const chart=margins.length>=2?'<h3>Reported operating margin</h3><div class="spark" aria-label="Fiscal-year operating margins">'+margins.map(([y,v])=>'<div class="'+(v<0?'negative':'')+'"><span>'+pct(v)+'</span><b style="height:'+Math.max(2,Math.abs(v)*70/max)+'px"></b><span>'+esc(y)+'</span></div>').join('')+'</div>':'';
@@ -72,10 +82,11 @@ function detail(r) {
  const ratios=Object.entries(r.ratios||{}).map(([k,v])=>'<dt>'+esc(k)+'</dt><dd>'+n2.format(v.multiple)+'×</dd>').join('');
  $('detail-title').textContent=r.name+' · '+r.symbol;
  $('content').innerHTML='<p class="lede">'+esc(label(r.kind))+' · '+esc(r.peer_group)+' · '+esc(r.classification)+'</p>'+
-   (m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
+   marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p><div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+sources+'</tbody></table></div>':'<p>No qualifying annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();
 }
@@ -95,6 +106,6 @@ $('load').addEventListener('change',async e=>{
  try{setData(JSON.parse(await file.text()));}catch(err){$('scope').textContent=err.message;}
  e.target.value='';
 });
-fetch('snapshot.json').then(r=>{if(!r.ok)throw Error('No bundled snapshot');return r.json();}).then(setData).catch(()=>{
- if(!snapshot)$('scope').textContent='Open a snapshot JSON to start. Serve this folder over HTTP to load its bundled snapshot automatically.';
+fetch('snapshot.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('No bundled snapshot');return r.json();}).then(setData).catch(()=>{
+ if(!snapshot)$('scope').textContent='The hosted data could not load. Reload this page, or open a local snapshot.';
 });

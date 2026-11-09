@@ -1,26 +1,78 @@
-"""Keep licensed/private market data outside the public Pages artifact."""
+"""Verify source provenance and date/coverage rules before publishing Pages."""
 from datetime import date
 import json
+import math
 from pathlib import Path
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
+
 snap=json.loads(Path(sys.argv[1]).read_text())
 rows=snap["rows"]
-if snap["mode"]!="public_fundamentals" or "ranking" in snap or not rows:
+open_market=snap["mode"]=="public_market"
+if snap["mode"] not in {"public_fundamentals","public_market"} or "ranking" in snap or not rows:
     raise SystemExit("Wrong snapshot edition")
 if [r["symbol"] for r in rows]!=sorted({r["symbol"] for r in rows}):
     raise SystemExit("Public universe must be alphabetical by unique symbol")
 asof=date.fromisoformat(snap["as_of"])
 fresh=0
+sec_count=0
+prices=[]
+market=snap.get("market_sources",{})
+if open_market:
+    receipts=market.get("receipts",{})
+    if market.get("license")!=OPEN_LICENSE or receipts.get("close",{}).get("url")!=TWSE_CLOSE or receipts.get("shares",{}).get("url")!=TWSE_ISSUERS:
+        raise SystemExit("Unverified public market sources")
+    fx=market.get("fx")
+    if fx and (fx["date"]!=market["date"] or fx["source"]["url"]!=CBC_FX or not 15<=fx["rate"]<=60):
+        raise SystemExit("Unverified same-date FX")
+
+def verify_period(period):
+    for fact in period["facts"].values():
+        source=fact["source"]
+        url=fact["url"]
+        official=source.startswith(("https://data.sec.gov/", "https://www.sec.gov/Archives/edgar/"))
+        if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
+            raise SystemExit("Unverified SEC fact source")
+        if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
+            raise SystemExit("Fact dated outside the observation window")
+        if not math.isfinite(fact["value"]):
+            raise SystemExit("Nonfinite fact")
+
 for row in rows:
-    if {"market_cap_usd","rank","models","ratios","fx"}&row.keys():
-        raise SystemExit("Market data found in public snapshot")
+    if row["id"].startswith("sec:"):
+        sec_count += 1
+    if {"market_cap_usd","rank","fx"}&row.keys():
+        raise SystemExit("Unapproved market data found in public snapshot")
+    q=row.get("market")
+    if q:
+        if not open_market or q["exchange"]!="XTAI" or q["date"]!=market["date"]:
+            raise SystemExit("Unexpected exchange quote")
+        if not 0 <= (asof-date.fromisoformat(q["date"])).days <= 7 or date.fromisoformat(q["shares_date"])>asof:
+            raise SystemExit("Unusable market date")
+        if q["issued_shares"]<=0 or q["close"]<=0 or not math.isclose(q["estimated_cap_twd"],q["close"]*q["issued_shares"]):
+            raise SystemExit("Market-cap calculation mismatch")
+        if fx and not math.isclose(q["estimated_cap_usd"],q["estimated_cap_twd"]/fx["rate"]):
+            raise SystemExit("Currency conversion mismatch")
+        prices.append(q)
+    if {"models","ratios"}&row.keys() and not q:
+        raise SystemExit("Valuation without an approved market input")
     if row["statement"]:
-        s=row["statement"]
-        if row["source"]!="SEC" or any(not f["source"].startswith("https://data.sec.gov/") or
-            date.fromisoformat(f["filed"])>asof for f in s["facts"].values()):
-            raise SystemExit("Public source provenance changed")
-        fresh += 0 <= (asof-date.fromisoformat(s["end"])).days <= 465
-if fresh < .80*len(rows) or fresh!=snap["stats"]["fresh"]:
-    raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{len(rows)} fresh")
-print(f"Public artifact verified: {fresh}/{len(rows)} fresh, source-only, dated {asof}")
+        verify_period(row["statement"])
+        fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
+    for kind in ("quarter","ytd"):
+        if row.get("edgar",{}).get(kind):
+            verify_period(row["edgar"][kind])
+
+if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
+    raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent statements")
+if open_market:
+    prices.sort(key=lambda q:q["rank"])
+    if (len(prices)!=50 or len({q["code"] for q in prices})!=50
+            or [q["rank"] for q in prices]!=list(range(1,51))
+            or any(a["estimated_cap_twd"]<b["estimated_cap_twd"] for a,b in zip(prices,prices[1:]))):
+        raise SystemExit("Public Taiwan universe incomplete or misranked")
+    if snap["stats"]["metadata_verified"] < .95*sec_count:
+        raise SystemExit("Insufficient SEC submissions coverage")
+print(f"Public artifact verified: {fresh}/{sec_count} recent statements, {len(prices)} exchange prices, dated {asof}")
