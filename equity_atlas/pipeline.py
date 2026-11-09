@@ -12,6 +12,7 @@ import time
 from .catalog import CIKS, LEIS, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, sec_filing_index
 from .edgar import annual_from_instance, instance_url
+from .issuer_20f import MIRRORS, read_mirror
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
 from .market import load_taiwan
@@ -49,6 +50,7 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
     issues=[]
     entity=None
     audit={}
+    annual_receipt=None
     if cik:
         try:
             obj, meta=cache.json(SEC.format(cik),sec_ttl_hours)
@@ -72,13 +74,24 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
                     try:
                         raw, instance_meta=cache.get(instance_url(annual),8760)
                         extra=annual_from_instance(raw,instance_meta,annual,cik)
-                        if not extra:
-                            raise ValueError("No consolidated annual statement in extracted XBRL")
+                        if not extra or extra[-1]["end"] != annual["end"]:
+                            raise ValueError("No consolidated annual statement for the expected period")
                         history=[x for x in history if x["end"] < extra[-1]["end"]]+extra
                         audit["annual_route"]="filing_instance"
+                        annual_receipt=instance_meta
                     except (OSError, ValueError, KeyError, TypeError) as exc:
                         audit["annual_route"]="latest_filing_gap"
-                        issues.append(f"SEC annual filed for {annual['end']}; extracted statement unavailable: {exc}")
+                        issues.append(f"SEC archive extraction for {annual['end']}: {exc}")
+                        mirror=MIRRORS.get((cik,annual["accession"]))
+                        if mirror:
+                            try:
+                                pdf, mirror_meta=cache.get(mirror[2],8760)
+                                recovered=read_mirror(pdf,mirror_meta,annual,cik)
+                                history=[x for x in history if x["end"] < recovered["end"]]+[recovered]
+                                audit["annual_route"]="issuer_20f"
+                                annual_receipt=mirror_meta
+                            except (OSError,ValueError,KeyError,TypeError) as mirror_exc:
+                                issues.append(f"Issuer 20-F extraction for {annual['end']}: {mirror_exc}")
                 if interim and (not history or interim["end"] > history[-1]["end"]):
                     for kind in ("quarter","ytd"):
                         periods=from_sec(obj,meta,day,cik,filings,kind)
@@ -89,7 +102,8 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
                     if not audit.get("quarter") and not audit.get("ytd"):
                         issues.append(f"SEC interim filed for {interim['end']}; compatible facts unavailable.")
             if history:
-                choices.append(("SEC",history,meta))
+                route="Issuer 20-F" if audit.get("annual_route")=="issuer_20f" else "SEC"
+                choices.append((route,history,annual_receipt or meta))
             else:
                 issues.append("SEC: no qualifying annual statement.")
         except (OSError,ValueError,KeyError,TypeError) as exc:
@@ -175,7 +189,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         cik=int(entry["cik"])
         payload,err=sources[cik]
         h=(payload or {}).get("history",[])
-        selected_source="SEC"
+        selected_source=(payload or {}).get("source")
         if symbol=="TSM" and "2330" in taiwan:
             seeds=json.loads((Path(__file__).resolve().parent.parent/"issuer-annual.json").read_text())
             extra=curated_history(symbol,day,seeds)
@@ -225,6 +239,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "latest_annual_expected":len(latest),
         "latest_annual_extracted":sum(bool(r["source"]=="SEC" and r["statement"] and
                                    r["statement"]["end"]==r["edgar"]["latest_annual"]["end"]) for r in latest),
+        "latest_annual_issuer_mirror":sum(bool(r["source"]=="Issuer 20-F" and r["statement"] and
+                                     r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "interim_available":sum(bool(r["edgar"].get("quarter") or r["edgar"].get("ytd")) for r in sec_rows),
     }
     data={"mode":"public_market" if open_market else "public_fundamentals",

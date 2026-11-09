@@ -5,6 +5,8 @@ Equity Atlas is a company screener with a deterministic CFA valuation engine. It
 - **Public:** [Equity Atlas on GitHub Pages](https://austinmermans.github.io/equity-atlas/) shows official Taiwan exchange closes, capitalization estimates and exchange multiples for 50 issuers alongside SEC filings for 170 issuers. The scheduled build obtains its inputs directly from official sources. Optional local imports stay in the browser.
 - **Local:** The valuation edition includes market capitalization, reported ratios, model decisions, scenario ranges, and a cycle view. It runs with Python 3.11+ and has no runtime packages.
 
+The public build checks each issuer's latest annual period against SEC submissions. When Company Facts lacks that period, it tries the SEC XBRL instance first. For reviewed accessions, it can then download the issuer's copy of the same 20-F and extract its consolidated statement tables using Poppler's `pdftotext`. The screener shows direct SEC and issuer-copy coverage separately and links both filing records and downloaded source documents. A new accession needs a reviewed table profile. Extraction errors retain earlier available filings and appear in the issuer's data gaps.
+
 ```sh
 export ATLAS_SEC_USER_AGENT='Equity Atlas your-contact@example.com'
 python3 -m equity_atlas --limit 100 --out data/pilot

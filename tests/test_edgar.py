@@ -3,6 +3,7 @@ import unittest
 
 from equity_atlas.edgar import annual_from_instance
 from equity_atlas.facts import from_sec
+from equity_atlas.issuer_20f import column, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
 from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount
 
@@ -75,6 +76,16 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(result["facts"]["sales"]["value"],1000000)
         self.assertEqual(result["facts"]["sales"]["context_id"],"year")
         self.assertEqual(result["facts"]["net"]["value"],-130000)
+
+    def test_issuer_copy_uses_current_column_after_optional_note(self):
+        self.assertEqual(column("Net profit . . . .    ¥(2,500)    ¥ 1,999", "Net profit", 2), -2500)
+        self.assertEqual(column("Dividends paid    32   —   (100)", "Dividends paid", 2), 0)
+        with self.assertRaises(ValueError):
+            column("Net profit    200    100\nNet profit    300    100", "Net profit", 2)
+        with self.assertRaises(ValueError):
+            column("Net profit    200n    100", "Net profit", 2)
+        with self.assertRaises(ValueError):
+            statement_page(["Financial Position\n2025 USD\nF-8"], "Financial Position", "F-8", ("2026 USD",))
 
     def test_taiwan_join_estimates_cap_and_excludes_fund_codes(self):
         registry=[{"公司代號":code,"出表日期":"1151108",SHARES:shares,"英文簡稱":"Issuer","公司名稱":"Issuer"}

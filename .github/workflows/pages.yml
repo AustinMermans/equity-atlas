@@ -35,6 +35,8 @@ jobs:
           python-version: '3.12'
       - name: Test finance and source invariants
         run: python -m unittest discover -s tests -v
+      - name: Install the PDF text extractor
+        run: command -v pdftotext || (sudo apt-get update && sudo apt-get install -y poppler-utils)
       - name: Build public market and filings edition
         env:
           ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || 'Equity Atlas research (local prototype)' }}

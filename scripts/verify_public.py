@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas.issuer_20f import MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -28,11 +29,26 @@ if open_market:
     if fx and (fx["date"]!=market["date"] or fx["source"]["url"]!=CBC_FX or not 15<=fx["rate"]<=60):
         raise SystemExit("Unverified same-date FX")
 
-def verify_period(period):
+def verify_period(period, row):
+    mirror = None
+    if period.get("route") == "issuer_20f":
+        report = row["edgar"]["latest_annual"]
+        cik = int(row["id"].removeprefix("sec:"))
+        mirror = MIRRORS.get((cik, report["accession"]))
+        if (not mirror or period["filing"] != report["accession"] or
+                (period["end"], period["currency"]) != mirror[:2] or period["report"] != report or
+                row["source"] != "Issuer 20-F" or row["edgar"]["annual_route"] != "issuer_20f"):
+            raise SystemExit("Issuer mirror does not match the expected SEC filing")
+    elif row["source"] == "Issuer 20-F" and period is row["statement"]:
+        raise SystemExit("Missing issuer mirror provenance")
     for fact in period["facts"].values():
         source=fact["source"]
         url=fact["url"]
         official=source.startswith(("https://data.sec.gov/", "https://www.sec.gov/Archives/edgar/"))
+        if mirror:
+            official=(source==mirror[2] and url==report["url"] and fact["filed"]==report["filed"] and
+                      fact["form"]==report["form"] and fact["tag"].startswith("issuer20f:") and
+                      len(fact["sha256"])==64)
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -59,12 +75,14 @@ for row in rows:
     if {"models","ratios"}&row.keys() and not q:
         raise SystemExit("Valuation without an approved market input")
     if row["statement"]:
-        verify_period(row["statement"])
+        verify_period(row["statement"], row)
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     for kind in ("quarter","ytd"):
         if row.get("edgar",{}).get(kind):
-            verify_period(row["edgar"][kind])
+            verify_period(row["edgar"][kind], row)
 
+if sum(r["source"]=="Issuer 20-F" for r in rows)!=snap["stats"].get("latest_annual_issuer_mirror",0):
+    raise SystemExit("Issuer mirror coverage mismatch")
 if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
     raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent statements")
 if open_market:
