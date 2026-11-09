@@ -19,6 +19,7 @@ from .inline import inline_url, periods_from_inline
 from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
+from .sec_workbook import ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
 from .market import load_taiwan
@@ -166,15 +167,19 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         scope="Amended annual statement" if needs_amendment else "Annual statement"
                         issues.append(f"{scope} for {annual['end']} unavailable from SEC archive: {exc}")
                         mirror=MIRRORS.get((cik,annual["accession"]))
-                        if mirror:
+                        for url, parser in ((mirror[2] if mirror else None, read_mirror),
+                                            (workbook_url(cik, annual), read_workbook)):
+                            if not url:
+                                continue
                             try:
-                                pdf, mirror_meta=cache.get(mirror[2],8760)
-                                recovered=read_mirror(pdf,mirror_meta,annual,cik)
+                                raw, receipt=cache.get(url,8760)
+                                recovered=parser(raw,receipt,annual,cik)
                                 history=[x for x in history if x["end"] < recovered["end"]]+[recovered]
                                 audit["annual_route"]=recovered["route"]
-                                annual_receipt=mirror_meta
-                            except (OSError,ValueError,KeyError,TypeError) as mirror_exc:
-                                issues.append(f"Public 20-F copy extraction for {annual['end']}: {mirror_exc}")
+                                annual_receipt=receipt
+                                break
+                            except (OSError,ValueError,KeyError,TypeError) as recovery_exc:
+                                issues.append(f"Public 20-F fallback for {annual['end']}: {recovery_exc}")
                 selected=history[-1] if history else None
                 claim_filing=filings.get(selected["filing"]) if selected else None
                 claim_profile=claim_copy(cik,claim_filing) if claim_filing else None
@@ -188,7 +193,8 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
             if history:
-                route=COPY_SOURCES.get(audit.get("annual_route"),"SEC")
+                route=(WORKBOOK_SOURCE if audit.get("annual_route")==WORKBOOK_ROUTE
+                       else COPY_SOURCES.get(audit.get("annual_route"),"SEC"))
                 choices.append((route,history,annual_receipt or meta))
             else:
                 issues.append("SEC: no qualifying annual statement.")
@@ -334,6 +340,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_regulator_mirror":sum(bool(r["source"]=="FCA 20-F" and r["statement"] and
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
+        "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
         "interim_available":sum(bool(r["edgar"].get("quarter") or r["edgar"].get("ytd")) for r in sec_rows),
     }
     data={"mode":"public_market" if open_market else "public_fundamentals",

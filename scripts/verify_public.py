@@ -13,6 +13,7 @@ from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
 from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
+from equity_atlas.sec_workbook import PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -37,6 +38,7 @@ if open_market:
 
 def verify_period(period, row):
     mirror = None
+    workbook = None
     route = period.get("route")
     interim_copy = None
     resolvers = {"issuer_inline": inline_url, "issuer_instance": issuer_instance_url, QUARTER_PDF_ROUTE: quarter_copy_url}
@@ -58,6 +60,17 @@ def verify_period(period, row):
             raise SystemExit("Public copy does not match the expected SEC filing")
     elif row["source"] in COPY_SOURCES.values() and period is row["statement"]:
         raise SystemExit("Missing public 20-F provenance")
+    if route == WORKBOOK_ROUTE:
+        report = row["edgar"]["latest_annual"]
+        cik = int(row["id"].removeprefix("sec:"))
+        workbook = workbook_url(cik, report)
+        if (not workbook or period is not row["statement"] or period["filing"] != report["accession"] or
+                period["report"] != report or period["end"] != report["end"] or
+                period["currency"] != PROFILES[cik, report["accession"]][1] or
+                row["source"] != WORKBOOK_SOURCE or row["edgar"]["annual_route"] != WORKBOOK_ROUTE):
+            raise SystemExit("SEC workbook does not match the expected annual filing")
+    elif row["source"] == WORKBOOK_SOURCE and period is row["statement"]:
+        raise SystemExit("Missing SEC workbook provenance")
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -66,6 +79,11 @@ def verify_period(period, row):
             official=(source==mirror[2] and url==report["url"] and fact["filed"]==report["filed"] and
                       fact["form"]==report["form"] and fact["tag"].startswith(route + ":") and
                       len(fact["sha256"])==64)
+        if workbook:
+            official = (source == workbook and url == report["url"] and fact["accession"] == report["accession"]
+                        and fact["filed"] == report["filed"] and fact["form"] == report["form"]
+                        and fact["tag"].startswith(WORKBOOK_ROUTE + ":") and bool(fact.get("locator"))
+                        and len(fact["sha256"]) == 64)
         if interim_copy:
             locator = fact.get("locator") if route == QUARTER_PDF_ROUTE else fact.get("context_id")
             official = (source == interim_copy and url == report["url"] and fact["accession"] == report["accession"]
@@ -113,6 +131,11 @@ for row in rows:
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     audit = row.get("edgar", {})
+    annual = audit.get("latest_annual")
+    if annual and row["id"].startswith("sec:"):
+        cik = int(row["id"].removeprefix("sec:"))
+        if workbook_url(cik, annual) and (row["statement"] or {}).get("filing") != annual["accession"]:
+            raise SystemExit(f"Refusing to lose verified annual coverage for {row['symbol']}")
     succession = audit.get("succession")
     if succession:
         cik = int(row["id"].removeprefix("sec:"))
@@ -132,7 +155,8 @@ for row in rows:
                 raise SystemExit("Interim period does not match the expected SEC filing")
             verify_period(period, row)
 
-for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F", "latest_annual_regulator_mirror")):
+for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F", "latest_annual_regulator_mirror"),
+                      (WORKBOOK_SOURCE, "latest_annual_sec_workbook")):
     if sum(r["source"]==source for r in rows)!=snap["stats"].get(count,0):
         raise SystemExit(f"{source} coverage mismatch")
 if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
