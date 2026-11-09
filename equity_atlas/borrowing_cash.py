@@ -2,6 +2,7 @@
 
 import re
 
+from . import borrowing_notes
 from .capex import FINANCING_TOTALS, cash_activity
 from .dividends import OPERATING
 from .facts import exact_sec_amount
@@ -42,8 +43,45 @@ NET = {US + name for name in (
 )} | {IFRS + "CashFlowsFromUsedInIncreaseDecreaseInCurrentBorrowings"}
 LEASE = {US + "FinanceLeasePrincipalPayments", IFRS + "PaymentsOfLeaseLiabilitiesClassifiedAsFinancingActivities"}
 COSTS = {US + "PaymentsOfDebtIssuanceCosts"}
+AMAZON_PRINCIPAL = "amzn:RepaymentsOfLongTermFinancingObligations"
 FUNDED_ASSET = "nvda:PaymentsForFinancedPropertyPlantAndEquipmentAndIntangibleAssetsFinancingActivities"
 TAGS = DRAWS | REPAYMENTS | NET | LEASE | COSTS
+
+# Exact issuer extensions and statement labels with an identified cash-flow scope.
+REVIEWED_ROWS = {
+    ("abt:ProceedsFromLongTermDebtAndDebtMaturingInMoreThanThreeMonths",
+     "proceeds from issuance of long-term debt and debt with maturities over 3 months"): "draw",
+    ("abt:RepaymentsOfLongTermDebtAndDebtMaturingInMoreThanThreeMonths",
+     "repayments of long-term debt and debt with maturities over 3 months"): "repayment",
+    ("adi:PaymentsOfCommercialPaper", "payments of commercial paper notes"): "repayment",
+    ("baba:ProceedsFromExchangeableBondsNetOfDebtIssuanceCost",
+     "proceeds from exchangeable bonds, net of debt issuance cost"): "draw",
+    ("cnq:IssuanceRepaymentsOfLineOfCreditBorrowingsClassifiedAsFinancingActivities",
+     "(repayment) issuance of bank credit facilities and commercial paper, net"): "net",
+    ("cnq:IssuanceOfOtherLongTermBorrowingsClassifiedAsFinancingActivities", "issuance of other long-term debt"): "draw",
+    ("cnq:RepaymentsOfOtherLongTermBorrowingsClassifiedAsFinancingActivities", "repayment of other long-term debt"): "repayment",
+    ("cof:ProceedsfromIssuanceofUnsecuredDebtandLongTermFHLBAdvancesNetofIssuanceCost",
+     "issuance of senior and subordinated notes and long-term fhlb advances"): "draw",
+    ("cof:RepaymentsofUnsecuredDebtandLongTermFHLBAdvances",
+     "maturities and paydowns of senior and subordinated notes"): "repayment",
+    ("duk:OtherProceedsfromShorttermDebtMaturinginMorethanThreeMonths",
+     "proceeds from the issuance of short-term debt with original maturities greater than 90 days"): "draw",
+    ("duk:OtherRepaymentsofShorttermDebtMaturinginMorethanThreeMonths",
+     "payments for the redemption of short-term debt with original maturities greater than 90 days"): "repayment",
+    ("enb:ProceedsFromRepaymentsOfCommercialPaperAndLinesOfCredit", "net change in commercial paper and credit facility draws"): "net",
+    ("gsk:ProceedsRepaymentsFromOfShortTermLoans", "net increase/(decrease) in short-term loans"): "net",
+    ("gsk:IncreaseDecreaseInOtherShortTermLoans", "increase in other short-term loans"): "draw",
+    ("gsk:RepaymentOfOtherShortTermLoans", "repayment of other short-term loans"): "repayment",
+    ("mar:ProceedsFromRepaymentsOfCommercialPaperAndLongTermLinesOfCredit", "commercial paper/credit facility, net"): "net",
+    ("ry:ChangeInShortTermBorrowingsSubsidiaries", "change in short-term borrowings of subsidiaries"): "net",
+    ("ry:ProceedsFromIssuanceOfSubordinatedDebentures", "issuance of subordinated debentures"): "draw",
+    ("td:ProceedsFromRepaymentsOfSubordinatedLiabilities", "redemption or repurchase of subordinated notes and debentures"): "repayment",
+    ("td:RepaymentOfLeaseLiabilities", "repayment of lease liabilities"): "lease",
+    ("tmus:ProceedsFromIssuanceOfLongTermDebtNet", "proceeds from issuance of long-term debt, net"): "draw",
+    ("tot:ProceedsFromRepaymentsOfNonCurrentBorrowings", "net issuance (repayment) of non-current debt"): "net",
+    ("vz:ProceedsFromIssuanceOfLongtermDebtExcludingAssetbackedDebt", "proceeds from long-term borrowings"): "draw",
+    ("wfc:ProceedsFromRepaymentsOfShortTermDebtNet", "short-term borrowings"): "net",
+}
 MIXED = {US + "RepaymentsOfDebtAndCapitalLeaseObligations", US + "RepaymentsOfLongTermDebtAndCapitalSecurities",
          US + "PaymentOfFinancingAndStockIssuanceCosts", US + "PaymentsOfFinancingCosts"}
 CONTINUING = {ns + tag for ns, tag in (
@@ -57,7 +95,8 @@ TITLE = re.compile(
     r"(?:statements? of (?:consolidated )?cash flows?|cash flows? statements?)"
     r"(?: for the years ended december 31| ₨ in millions,| - southern)?"
 )
-DEBT_WORDS = re.compile(r"\b(?:debt|borrow\w*|loans?|bonds?|credit facilit\w*|commercial paper|"
+DEBT_WORDS = re.compile(r"\b(?:debt|borrow\w*|loans?|bonds?|debentures?|credit facilit\w*|commercial paper|"
+                        r"lines? of credit|credit lines?|"
                         r"lease\w*|financ(?:ing|e) obligations?|securiti[sz]\w*|(?:senior|term|subordinated) notes|"
                         r"principal (?:payments|repayments)|vendor financ\w*)\b")
 MIXED_WORDS = re.compile(r"\band other\b(?! (?:short.term|long.term|current|senior|unsecured|secured)?\s*(?:debt|borrowings)\b)"
@@ -79,6 +118,12 @@ def role(tag, label, value):
         return "unallocated" if value else "other"
     if tag == FUNDED_ASSET:
         return "asset" if value <= 0 else "unallocated"
+    if tag == AMAZON_PRINCIPAL and label == "principal repayments of financing obligations":
+        return "obligations" if value <= 0 else "unallocated"
+    if scoped := REVIEWED_ROWS.get((tag, label)):
+        if scoped == "draw" and value < 0 or scoped in {"repayment", "lease"} and value > 0:
+            return "unallocated"
+        return "lease" if scoped == "lease" else "borrowing"
     if tag in TAGS:
         if MIXED_WORDS.search(label):
             return "unallocated" if value else "other"
@@ -136,23 +181,36 @@ def borrowing_cash_facts(report, period, evidence):
             or len({(line["line"], line["tag"]) for line in lines}) != len(lines)
             or type(evidence["financing"]) is not int or sum(x["value"] for x in lines) != evidence["financing"]):
         raise ValueError("Borrowing cash flow does not reconcile to the consolidated financing subtotal")
-    groups = {k: [] for k in ("borrowing", "lease", "costs", "asset", "unallocated", "other")}
+    keys = {
+        "borrowing": "debt_net", "lease": "lease_principal_paid", "costs": "debt_issuance_cost_paid",
+        "asset": "financed_asset_principal_paid", "obligations": "financing_obligation_principal_paid",
+        "prepayment": "finance_lease_prepayment_paid", "collateral": "financing_collateral_cash",
+        "other_financing": "financing_other_balance_sheet_cash", "rounding": "financing_note_rounding_difference",
+    }
+    groups = {k: [] for k in (*keys, "unallocated", "other")}
+    original = None
+    if "allocation_note" in evidence:
+        original, parts = borrowing_notes.allocate_note(report, period, evidence)
+        if (role(original["tag"], original["line"], original["value"]) != "unallocated"
+                or sum(part["value"] for _, part in parts) != original["value"]):
+            raise ValueError("Borrowing note components do not allocate the mixed statement line")
+        for kind, part in parts:
+            groups[kind].append(part)
     for line in lines:
-        groups[role(line["tag"], line["line"], line["value"])].append(line)
-    if not any(groups[k] for k in ("borrowing", "lease", "costs", "asset", "unallocated")):
+        if line is not original:
+            groups[role(line["tag"], line["line"], line["value"])].append(line)
+    if not any(groups[k] for k in (*keys, "unallocated")):
         raise ValueError("No classified debt or lease cash flow on the financing statement")
     facts = {}
-    partial = bool(groups["unallocated"])
-    keys = {"borrowing": "debt_net_identified" if partial else "debt_net",
-            "lease": "lease_principal_paid", "costs": "debt_issuance_cost_paid",
-            "asset": "financed_asset_principal_paid"}
+    if groups["unallocated"]:
+        keys["borrowing"] = "debt_net_identified"
     provenance = {k: evidence[k] for k in ("source", "sha256", "table_url", "table_sha256_16")}
     if "table_kind" in evidence:
         provenance["table_kind"] = evidence["table_kind"]
     for group, key in keys.items():
         if not groups[group]:
             continue
-        sign = 1 if group == "borrowing" else -1
+        sign = -1 if group in {"lease", "costs", "asset", "obligations", "prepayment"} else 1
         facts[key] = {**provenance, **{k: report[k] for k in ("url", "filed", "form", "accession")},
                       "start": period["start"], "unit": period["currency"], "tag": TAG,
                       "value": sign * sum(x["value"] for x in groups[group]),
@@ -164,5 +222,13 @@ def borrowing_cash_facts(report, period, evidence):
 def enrich_borrowing_cash(cache, obj, cik, report, period):
     evidence = extract(cache, obj, cik, report, period)
     facts, pending = borrowing_cash_facts(report, period, evidence)
-    return {**period, "facts": {**period["facts"], **facts}, "annual_borrowing_cash": evidence,
+    gap = {}
+    if borrowing_notes.candidate(cik, pending):
+        try:
+            scoped = {**evidence, "allocation_note": borrowing_notes.read_note(cache, cik, report)}
+            facts, pending = borrowing_cash_facts(report, period, scoped)
+            evidence = scoped
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            gap["borrowing_note_gap"] = str(exc)
+    return {**period, **gap, "facts": {**period["facts"], **facts}, "annual_borrowing_cash": evidence,
             "borrowing_cash_pending": pending}

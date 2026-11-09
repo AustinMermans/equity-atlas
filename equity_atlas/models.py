@@ -182,17 +182,21 @@ def net_debt_cash(statement):
         return None
     lease = v.get("lease_principal_paid")
     note_lease = v.get("finance_lease_principal_note")
-    if lease is not None and note_lease is not None and lease != note_lease:
+    prepayment = v.get("finance_lease_prepayment_paid", 0)
+    if lease is not None and note_lease is not None and lease + prepayment != note_lease:
         return None
     if lease is None:
         lease = note_lease
+    if prepayment and ("lease_principal_paid" not in v or prepayment < 0):
+        return None
     if lease is None and any(v.get(field, 0) > 0 for field in
                              ("finance_lease_liability", "finance_lease_liability_current",
                               "finance_lease_liability_noncurrent")):
         return None
     if lease is not None and lease < 0:
         return None
-    return v["debt_net"] - (lease or 0) - v.get("debt_issuance_cost_paid", 0)
+    return (v["debt_net"] - (lease or 0) - prepayment - v.get("debt_issuance_cost_paid", 0)
+            - v.get("financing_obligation_principal_paid", 0))
 
 
 def observed(case):

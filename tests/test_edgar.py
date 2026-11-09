@@ -246,6 +246,10 @@ class EdgarTests(unittest.TestCase):
         note_only["finance_lease_principal_note"] = {"value": 20}
         self.assertEqual(net_debt_cash({"facts": note_only}), 75)
         self.assertEqual(net_debt_cash({"facts": {**note_only, **facts}}), 75)
+        split = {**note_only, **facts, "lease_principal_paid": {"value": 15},
+                 "finance_lease_prepayment_paid": {"value": 5}}
+        self.assertEqual(net_debt_cash({"facts": split}), 75)
+        self.assertIsNone(net_debt_cash({"facts": {**split, "finance_lease_prepayment_paid": {"value": 6}}}))
         self.assertIsNone(net_debt_cash({"facts": {**note_only, **facts, "lease_principal_paid": {"value": 19}}}))
         self.assertIsNone(net_debt_cash({"facts": facts, "borrowing_cash_pending": ["Mixed"]}))
         self.assertIsNone(net_debt_cash({"facts": {**facts, "capex_financing_payment": {"value": 0}}}))

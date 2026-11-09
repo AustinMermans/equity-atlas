@@ -626,13 +626,29 @@ BORROWING_CASH_AMOUNTS = {
     "AAPL": ("USD", {"debt_net": -18_307_000_000}),
     "MSFT": ("USD", {"debt_net": -3_000_000_000, "finance_lease_principal_note": 3_101_000_000,
                      "finance_lease_liability": 66_594_000_000}),
-    "COST": ("USD", {"debt_net_identified": 403_000_000, "finance_lease_principal_note": 89_000_000}),
-    "AMZN": ("USD", {"debt_net_identified": 10_652_000_000, "lease_principal_paid": 1_557_000_000}),
+    "COST": ("USD", {"debt_net_identified": 403_000_000, "finance_lease_principal_note": 89_000_000,
+                     "lease_principal_paid": 89_000_000}),
+    "AMZN": ("USD", {"debt_net_identified": 10_652_000_000, "lease_principal_paid": 1_557_000_000,
+                     "financing_obligation_principal_paid": 328_000_000}),
     "AVGO": ("USD", {"debt_net": -2_812_000_000}),
     "META": ("USD", {"debt_net": 29_906_000_000, "lease_principal_paid": 2_524_000_000}),
     "NVDA": ("USD", {"debt_net": 0, "financed_asset_principal_paid": 101_000_000}),
     "BP": ("USD", {"debt_net": -3_314_000_000, "lease_principal_paid": 3_091_000_000}),
-    "EQNR": ("USD", {"debt_net_identified": 3_515_000_000, "lease_principal_paid": 1_459_000_000}),
+    "EQNR": ("USD", {"debt_net": -119_000_000, "lease_principal_paid": 1_459_000_000,
+                     "financing_collateral_cash": 843_000_000, "financing_other_balance_sheet_cash": -85_000_000,
+                     "financing_note_rounding_difference": 1_000_000}),
+    "GOOG": ("USD", {"debt_net": 34_125_000_000, "lease_principal_paid": 888_000_000,
+                     "finance_lease_prepayment_paid": 1_100_000_000}),
+    "ADI": ("USD", {"debt_net": 989_688_000}),
+    "BABA": ("CNY", {"debt_net": 39_032_000_000}),
+    "CNQ": ("CAD", {"debt_net": -1_460_000_000}),
+    "DUK": ("USD", {"debt_net": 5_120_000_000}),
+    "GSK": ("GBP", {"debt_net": 1_506_000_000}),
+    "MAR": ("USD", {"debt_net": 1_724_000_000}),
+    "RY": ("CAD", {"debt_net": 3_045_000_000}),
+    "TD": ("CAD", {"debt_net": -892_000_000, "lease_principal_paid": 1_683_000_000}),
+    "TMUS": ("USD", {"debt_net": 5_811_000_000, "lease_principal_paid": 1_252_000_000}),
+    "WFC": ("USD", {"debt_net": 12_489_000_000}),
 }
 for symbol, (currency, expected) in BORROWING_CASH_AMOUNTS.items():
     facts = rows[symbol]["statement"]["facts"]
@@ -642,6 +658,9 @@ for symbol, (currency, expected) in BORROWING_CASH_AMOUNTS.items():
         checked += 1
     if "debt_net_identified" in expected and "debt_net" in facts:
         raise SystemExit(f"{symbol}: unresolved financing lines were treated as complete borrowing cash flows")
+
+if [x["value"] for x in rows["COST"]["statement"]["borrowing_cash_pending"]] != [-2_000_000]:
+    raise SystemExit("COST: the other financing cash flow must stay unresolved after allocating lease principal")
 
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
