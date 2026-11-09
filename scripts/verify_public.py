@@ -9,7 +9,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
-from equity_atlas.capex import CAPEX_TAG, PINNED as CAPEX_PINNED, valid_capex_components
+from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, CAPEX_TAG, PINNED as CAPEX_PINNED,
+                                required_additional_fields, valid_capex_components)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
@@ -202,7 +203,7 @@ def verify_period(period, row):
                             fact["filed"] == report["filed"] and fact["form"] == report["form"] and
                             fact["unit"] == period["currency"] and fact["start"] is None and
                             bool(fact.get("locator")) and len(fact["sha256"]) == 64)
-        if fact["tag"] == CAPEX_TAG or key == "capex_reported_total":
+        if fact["tag"] == CAPEX_TAG or key in CAPEX_ADDITIONAL_FIELDS:
             report = annual_report
             components = fact.get("components", []) if key == "capex" else [fact]
             official = bool(
@@ -272,6 +273,8 @@ for row in rows:
             profiled = period["facts"].get("capex", {}).get("tag") == CAPEX_TAG
             if report and (cik, report["accession"]) in CAPEX_PINNED and not profiled:
                 raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
+            if profiled and report and not required_additional_fields(cik, report) <= period["facts"].keys():
+                raise SystemExit(f"Missing a reviewed separate cash outflow for {row['symbol']}")
             capex_profiles += profiled
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]

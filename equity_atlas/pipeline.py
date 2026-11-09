@@ -497,7 +497,7 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
                       "accounting":accounting(h),"source":outcome["source"],"entity_name":outcome["entity_name"],
                       "ev_exclusion":(
                           "Client-funds investments and financing need a separate enterprise-value bridge." if cik == ADP else
-                          "Captive finance needs a separated operating/debt bridge." if sym in {"TM","F","GM"} else None
+                          "Captive finance needs a separated operating/debt bridge." if sym in {"TM","F","GM","CAT"} else None
                       ),
                       "source_receipt":outcome["receipt"],"as_of":str(day),"issues":issues,
                       "edgar":outcome.get("edgar",{}),"balance_check":balance_check(h[-1]) if h else None},h,fx,day)

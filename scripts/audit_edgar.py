@@ -62,6 +62,21 @@ for kind, expected in {
         raise SystemExit("SO standalone quarter contains year-to-date cash flow")
 # Independently checked face-statement and reconciliation amounts, in base units.
 CASH_INVESTMENT = {
+    "0941.HK": ("CNY", 207_267_000_000),
+    "ARM": ("USD", 575_000_000),
+    "AZN": ("USD", 5_905_000_000),
+    "BTI": ("GBP", 704_000_000),
+    "CAT": ("USD", 4_286_000_000),
+    "GSK": ("GBP", 2_985_000_000),
+    "IBM": ("USD", 1_738_000_000),
+    "INTC": ("USD", 17_672_000_000),
+    "MRNA": ("USD", 202_000_000),
+    "NOW": ("USD", 911_000_000),
+    "NVS": ("USD", 3_900_000_000),
+    "REGN": ("USD", 1_213_700_000),
+    "SNOW": ("USD", 104_729_000),
+    "TMUS": ("USD", 12_523_000_000),
+    "UL": ("EUR", 1_591_000_000),
     "ABNB": ("USD", 33_000_000), "ADP": ("USD", 665_100_000),
     "APP": ("USD", 28_791_000), "ASML": ("EUR", 1_631_200_000),
     "BABA": ("CNY", 126_937_000_000), "BP": ("USD", 13_221_000_000),
@@ -80,9 +95,21 @@ for symbol, expected in CASH_INVESTMENT.items():
     if (period["currency"], fact.get("value")) != expected:
         raise SystemExit(f"{symbol} cash investment: expected {expected}; got {fact}")
     checked += 1
-for symbol, key, amount in (("BP", "capex_reported_total", 14_533_000_000),
-                            ("SHEL", "capex_reported_total", 20_915_000_000),
-                            ("PDD", "cfo", 106_938_690_000)):
+OTHER_CASH_FLOWS = (
+    ("0857.HK", "capex_mixed_outflow", 1_524_000_000),
+    ("ADBE", "capex_mixed_outflow", 134_000_000),
+    ("ARM", "capex_financing_payment", 67_000_000),
+    ("GOOG", "capex_mixed_outflow", 1_592_000_000),
+    ("ISRG", "capex_mixed_outflow", 13_900_000),
+    ("META", "capex_mixed_outflow", 4_231_000_000),
+    ("MSFT", "capex_mixed_outflow", 1_743_000_000),
+    ("NVDA", "capex_financing_payment", 101_000_000),
+    ("PEP", "capex_mixed_outflow", 3_391_000_000),
+    ("BP", "capex_reported_total", 14_533_000_000),
+    ("SHEL", "capex_reported_total", 20_915_000_000),
+    ("PDD", "cfo", 106_938_690_000),
+)
+for symbol, key, amount in OTHER_CASH_FLOWS:
     if rows[symbol]["statement"]["facts"].get(key, {}).get("value") != amount:
         raise SystemExit(f"{symbol} {key}: expected {amount}")
     checked += 1
@@ -201,4 +228,5 @@ for symbol in ("AMGN", "AMZN", "APP", "CRM", "CSCO", "DUK", "GOOG", "SNY", "SO",
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
+issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

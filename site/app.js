@@ -10,6 +10,8 @@ const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—'
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
 const fieldNames={
+ capex_mixed_outflow:'Combined investing outflow with an unallocated asset component',
+ capex_financing_payment:'Financing cash paid on previously acquired assets',
  da_with_writeoffs:'Depreciation, amortization and write-offs',
  da_with_impairment_and_writeoffs:'Depreciation, amortization, net impairments and exploration write-offs',
  da_including_nonoperating:'Cash-flow D&A including nonoperating amounts',
@@ -81,7 +83,7 @@ function render() {
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
  const capexDetail=v=>{
-   if(v.tag!=='derived:CashCapitalInvestment'&&v!==st?.facts?.capex_reported_total) return '';
+   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment].includes(v)) return '';
    const components=v.components||[v];
    return '<details><summary>Filed cash investment lines</summary><ul>'+components.map(part=>{
      const source=part.table_url||part.source;

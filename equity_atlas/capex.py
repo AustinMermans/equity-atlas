@@ -10,9 +10,25 @@ from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belon
 PPE_OTHER = "us-gaap:PaymentsToAcquireOtherPropertyPlantAndEquipment"
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
 INTANGIBLES = "us-gaap:PaymentsToAcquireIntangibleAssets"
+IFRS_PPE = "ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"
+IFRS_INTANGIBLES = "ifrs-full:PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"
 COMBINED = "ifrs-full:PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets"
 TURNAROUND = "us-gaap:PaymentsForCapitalImprovements"
 CAPEX_TAG = "derived:CashCapitalInvestment"
+ADDITIONAL_FIELDS = {"capex_mixed_outflow", "capex_financing_payment", "capex_reported_total"}
+FINANCING_TAGS = {
+    "arm:RepaymentsOfIntangibleAssetObligation",
+    "intc:PaymentsToAcquirePropertyPlantAndEquipmentFinancingActivities",
+    "nvda:PaymentsForFinancedPropertyPlantAndEquipmentAndIntangibleAssetsFinancingActivities",
+}
+INVESTING_TOTALS = {
+    "us-gaap:NetCashProvidedByUsedInInvestingActivities",
+    "ifrs-full:CashFlowsFromUsedInInvestingActivities",
+}
+FINANCING_TOTALS = {
+    "us-gaap:NetCashProvidedByUsedInFinancingActivities",
+    "ifrs-full:CashFlowsFromUsedInFinancingActivities",
+}
 
 # These are face cash-flow amounts unless a filing exposes its separate PP&E
 # outflow in the FCF reconciliation. Reviewed rules revalidate the current filing.
@@ -36,12 +52,177 @@ DIRECT = {
     ),
 }
 
+# Exact purchases anchored to the consolidated investing or financing section.
+SECTION_PROFILES = {
+    (1108329, "0001193125-23-124228"): (  # 0857.HK
+        "Consolidated Statements of Cash Flows", "R4.htm", 1_000_000, (
+            (IFRS_PPE, "Capital expenditures"),
+        ),
+    ),
+    (1117795, "0001193125-22-125601"): (  # 0941.HK
+        "Consolidated Statements of Cash Flows", "R5.htm", 1_000_000, (
+            (IFRS_PPE, "Payment for property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Payment for other intangible assets"),
+        ),
+    ),
+    (796343, "0000796343-26-000003"): (  # ADBE
+        "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+        ),
+    ),
+    (1973239, "0001973239-26-000097"): (  # ARM
+        "Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+            (INTANGIBLES, "Purchases of intangible assets"),
+        ),
+    ),
+    (901832, "0001104659-26-019130"): (  # AZN
+        "Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, (
+            (IFRS_PPE, "Purchase of property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Purchase of intangible assets"),
+        ),
+    ),
+    (1303523, "0001303523-26-000017"): (  # BTI
+        "Group Cash Flow Statement", "R9.htm", 1_000_000, (
+            (IFRS_PPE, "Purchases of property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Purchases of intangibles"),
+        ),
+    ),
+    (18230, "0000018230-26-000008"): (  # CAT
+        "Consolidated Statement of Cash Flow for the Years Ended December 31", "R9.htm", 1_000_000, (
+            (PPE, "Capital expenditures - excluding equipment leased to others"),
+            ("us-gaap:PaymentsToAcquireEquipmentOnLease", "Expenditures for equipment leased to others"),
+        ),
+    ),
+    (1652044, "0001652044-26-000018"): (  # GOOG
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R10.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+        ),
+    ),
+    (1131399, "0001131399-26-000004"): (  # GSK
+        "Consolidated cash flow statement", "R7.htm", 1_000_000, (
+            (IFRS_PPE, "Purchase of property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Purchase of intangible assets"),
+        ),
+    ),
+    (51143, "0000051143-26-000010"): (  # IBM
+        "CONSOLIDATED STATEMENT OF CASH FLOWS", "R7.htm", 1_000_000, (
+            (PPE, "Payments for property, plant and equipment"),
+            ("ibm:PaymentsToAcquireAndDevelopSoftware", "Investment in software"),
+        ),
+    ),
+    (50863, "0000050863-26-000011"): (  # INTC
+        "Consolidated Statements of Cash Flows", "R7.htm", 1_000_000, (
+            (PPE, "Additions to property, plant and equipment"),
+            ("intc:PaymentsToAcquirePropertyPlantAndEquipmentFinancingActivities", "Additions to property, plant and equipment"),
+        ),
+    ),
+    (1035267, "0001035267-26-000010"): (  # ISRG
+        "Consolidated Statements Of Cash Flows", "R9.htm", 1_000_000, (
+            ("us-gaap:PaymentsToAcquireProductiveAssets", "Purchases of property, plant, and equipment"),
+        ),
+    ),
+    (1326801, "0001628280-26-003942"): (  # META
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R9.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+        ),
+    ),
+    (1682852, "0001682852-26-000033"): (  # MRNA
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000, (
+            (PPE, "Purchases of property, plant and equipment"),
+            (INTANGIBLES, "Purchase of intangible asset"),
+        ),
+    ),
+    (789019, "0001193125-26-323660"): (  # MSFT
+        "CASH FLOWS STATEMENTS", "R6.htm", 1_000_000, (
+            (PPE, "Additions to property and equipment"),
+        ),
+    ),
+    (1373715, "0001373715-26-000007"): (  # NOW
+        "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+            (INTANGIBLES, "Purchases of other intangibles"),
+        ),
+    ),
+    (1045810, "0001045810-26-000021"): (  # NVDA
+        "Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, (
+            ("us-gaap:PaymentsToAcquireProductiveAssets", "Purchases related to property and equipment and intangible assets"),
+        ),
+    ),
+    (1114448, "0001114448-26-000004"): (  # NVS
+        "Consolidated cash flow statements", "R6.htm", 1_000_000, (
+            (IFRS_PPE, "Purchases of property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Purchases of intangible assets"),
+        ),
+    ),
+    (77476, "0000077476-26-000007"): (  # PEP
+        "Consolidated Statement of Cash Flows", "R5.htm", 1_000_000, (
+            ("us-gaap:PaymentsToAcquireProductiveAssets", "Capital spending"),
+        ),
+    ),
+    (872589, "0000872589-26-000008"): (  # REGN
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R7.htm", 1_000_000, (
+            ("us-gaap:PaymentsToAcquireProductiveAssets", "Capital expenditures"),
+            ("regn:PaymentsToAcquireIntangibleAssets1", "Payments for intangible assets"),
+        ),
+    ),
+    (1640147, "0001640147-26-000008"): (  # SNOW
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R9.htm", 1_000, (
+            (PPE, "Purchases of property and equipment"),
+            (INTANGIBLES, "Purchases of intangible assets"),
+        ),
+    ),
+    (1283699, "0001283699-26-000010"): (  # TMUS
+        "Consolidated Statements of Cash Flows", "R7.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment, including capitalized interest"),
+            (INTANGIBLES, "Purchases of spectrum licenses and other intangible assets, including deposits"),
+        ),
+    ),
+    (217410, "0000217410-26-000007"): (  # UL
+        "Consolidated cash flow statement", "R9.htm", 1_000_000, (
+            (IFRS_PPE, "Purchase of property, plant and equipment"),
+            (IFRS_INTANGIBLES, "Purchase of intangible assets"),
+        ),
+    ),
+}
+
+# Separately reported outflows with a scope outside cash capital investment.
+ADDITIONAL_OUTFLOWS = {
+    (1108329, "0001193125-23-124228"): {
+        "capex_mixed_outflow": ("ptr:PurchaseOfIntangibleAssetsAndOtherLongtermAssetsClassifiedAsInvestingActivities", "Acquisition of intangible assets and other non-current assets"),
+    },
+    (796343, "0000796343-26-000003"): {
+        "capex_mixed_outflow": ("us-gaap:PaymentsToAcquireLongtermInvestments", "Purchases of long-term investments, intangibles and other assets"),
+    },
+    (1973239, "0001973239-26-000097"): {
+        "capex_financing_payment": ("arm:RepaymentsOfIntangibleAssetObligation", "Payments of intangible asset obligations"),
+    },
+    (1652044, "0001652044-26-000018"): {
+        "capex_mixed_outflow": ("goog:AcquisitionsNetOfCashAcquiredAndPurchasesOfIntangibleAndOtherAssets", "Acquisitions, net of cash acquired, and purchases of intangible assets"),
+    },
+    (1035267, "0001035267-26-000010"): {
+        "capex_mixed_outflow": ("us-gaap:PaymentsToAcquireBusinessesNetOfCashAcquired", "Acquisition of businesses, net of cash, and intellectual property and other investing activities"),
+    },
+    (1326801, "0001628280-26-003942"): {
+        "capex_mixed_outflow": ("meta:PaymentsToAcquireBusinessesNetOfCashAcquiredAndPurchasesOfIntangibleAndOtherAssets", "Acquisitions of businesses and intangible assets"),
+    },
+    (789019, "0001193125-26-323660"): {
+        "capex_mixed_outflow": ("msft:AcquisitionsNetOfCashAcquiredAndPurchasesOfIntangibleAndOtherAssets", "Acquisition of companies, net of cash acquired and divestitures, and purchases of intangible and other assets"),
+    },
+    (1045810, "0001045810-26-000021"): {
+        "capex_financing_payment": ("nvda:PaymentsForFinancedPropertyPlantAndEquipmentAndIntangibleAssetsFinancingActivities", "Principal payments on property and equipment and intangible assets"),
+    },
+    (77476, "0000077476-26-000007"): {
+        "capex_mixed_outflow": ("us-gaap:PaymentsToAcquireBusinessesAndInterestInAffiliates", "Acquisitions, net of cash acquired, investments in noncontrolled affiliates and purchases of intangible and other assets"),
+    },
+}
+
 # Report title, SEC rendered table, scale, and reviewed concept/label pairs.
 RENDERED = {
+    **SECTION_PROFILES,
     (353278, "0000353278-26-000012"): (
         "Cash flow statement", "R5.htm", 1_000_000,
-        (("ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "Purchase of property, plant and equipment"),
-         ("ifrs-full:PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities", "Purchase of intangible assets")),
+        ((IFRS_PPE, "Purchase of property, plant and equipment"), (IFRS_INTANGIBLES, "Purchase of intangible assets")),
     ),
     (1577552, "0001193125-26-231755"): (
         "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000,
@@ -134,6 +315,33 @@ def section(table, label):
     return {**table, "rows": rows[index+1:stop]}, {**table, "rows": rows[:index]}
 
 
+def cash_activity(table, column, cfo_tag, financing):
+    """Return only the rows between the consolidated cash-flow subtotals."""
+    rows = table["rows"]
+    dimension = next((i for i, row in enumerate(rows) if row[1] is None), len(rows))
+    rows = rows[:dimension]
+
+    def subtotal(tags):
+        indices = [i for i, row in enumerate(rows) if row[1] in tags and type(row[column]) in (int, float)]
+        if len(indices) != 1:
+            raise ValueError("Missing or ambiguous consolidated cash-flow subtotal")
+        return indices[0]
+
+    operating = subtotal({cfo_tag})
+    investing = subtotal(INVESTING_TOTALS)
+    financing_end = subtotal(FINANCING_TOTALS) if financing else len(rows)
+    if not operating < investing < financing_end:
+        raise ValueError("Consolidated cash-flow sections are out of order")
+    return ({**table, "rows": rows[operating + 1:investing]},
+            {**table, "rows": rows[investing + 1:financing_end]})
+
+
+def activity_label(key, tag):
+    if key not in SECTION_PROFILES:
+        return ""
+    return "Financing activities · " if tag in FINANCING_TAGS else "Investing activities · "
+
+
 def rendered_components(cache, obj, key, statement, report, component):
     title, filename, scale, concepts = RENDERED[key]
     cik = key[0]
@@ -152,18 +360,35 @@ def rendered_components(cache, obj, key, statement, report, component):
     if scaled(amount(consolidated, cfo["tag"], index)[0], scale) != cfo["value"]:
         raise ValueError("Cash-flow table operating cash disagrees with the exact SEC statement")
 
-    def extract(part, tag, label, scope=""):
+    def extract(part, tag, label, scope="", *, dimensioned=False):
         value = -scaled(amount(part, tag, index, label)[0], scale)
-        direct = exact_sec_amount(obj, statement, report, tag) if not scope else None
+        direct = exact_sec_amount(obj, statement, report, tag) if not dimensioned else None
         if direct is not None and abs(direct) != value:
             raise ValueError(f"Cash-flow table and SEC Company Facts disagree for {label}")
         return component(tag, value, title + " · " + scope + label, receipt, **evidence)
 
-    parts = [extract(consolidated, tag, label) for tag, label in concepts]
+    extras = ADDITIONAL_OUTFLOWS.get(key, {})
+    investing, financing = consolidated, None
+    if key in SECTION_PROFILES:
+        needs_financing = any(tag in FINANCING_TAGS for tag, _ in (*concepts, *extras.values()))
+        investing, financing = cash_activity(consolidated, index, cfo["tag"], needs_financing)
+    if cik == 1283699:
+        # The footnote in this face line contains three years of interest amounts.
+        investing = {**investing, "rows": [
+            [row[0].split(" of $", 1)[0], *row[1:]]
+            if row[1] == PPE and "including capitalized interest of $" in row[0] else row
+            for row in investing["rows"]
+        ]}
+
+    def extract_cash(tag, label):
+        return extract(financing if tag in FINANCING_TAGS else investing, tag, label, activity_label(key, tag))
+
+    parts = [extract_cash(tag, label) for tag, label in concepts]
+    reported = {field: extract_cash(tag, label) for field, (tag, label) in extras.items()}
     if cik == 1035002:
         for member, lines in VALERO_MEMBERS:
             group, _ = section(table, member)
-            parts.extend(extract(group, tag, label, member + " · ") for tag, label in lines)
+            parts.extend(extract(group, tag, label, member + " · ", dimensioned=True) for tag, label in lines)
         # The three members partition PP&E and turnaround spending. Reconcile
         # their outflows to consolidated investing cash, excluding the other
         # investing lines shown before the total.
@@ -173,13 +398,13 @@ def rendered_components(cache, obj, key, statement, report, component):
             "us-gaap:PaymentsToAcquireInterestInJointVenture",
             "us-gaap:PaymentsForProceedsFromOtherInvestingActivities",
         ))
-        investing = scaled(amount(consolidated, "us-gaap:NetCashProvidedByUsedInInvestingActivities", index)[0], scale)
-        if other - sum(part["value"] for part in parts) != investing:
+        investing_total = scaled(amount(consolidated, "us-gaap:NetCashProvidedByUsedInInvestingActivities", index)[0], scale)
+        if other - sum(part["value"] for part in parts) != investing_total:
             raise ValueError("Valero member cash investments do not reconcile")
-    reported = None
     if cik in REPORTED_TOTALS:
-        reported = extract(consolidated, *REPORTED_TOTALS[cik])
-        if reported["value"] < sum(part["value"] for part in parts):
+        total = extract(consolidated, *REPORTED_TOTALS[cik])
+        reported["capex_reported_total"] = total
+        if total["value"] < sum(part["value"] for part in parts):
             raise ValueError("Reported total capital expenditure is below its productive-asset component")
     return parts, reported
 
@@ -219,7 +444,7 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
             "source": receipt["url"], "sha256": receipt["sha256"], "locator": label, **evidence,
         }
 
-    parts, reported = [], None
+    parts, reported = [], {}
     if key in PDFS:
         parts.append(pdf_component(cache, key, statement, component))
     if key in RENDERED:
@@ -237,10 +462,15 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     capex = {**parts[0], "value": total, "tag": CAPEX_TAG, "components": parts}
     if len(parts) > 1:
         capex["locator"] = "Sum of " + str(len(parts)) + " reviewed cash investment lines"
-    facts = {**statement["facts"], "capex": capex}
-    if reported:
-        facts["capex_reported_total"] = reported
+    facts = {**statement["facts"], "capex": capex, **reported}
     return {**statement, "facts": facts}
+
+
+def required_additional_fields(cik, report):
+    fields = set(ADDITIONAL_OUTFLOWS.get(rule_key(cik, report), {}))
+    if cik in REPORTED_TOTALS:
+        fields.add("capex_reported_total")
+    return fields
 
 
 def valid_capex_components(parts, cik, report, field):
@@ -255,10 +485,13 @@ def valid_capex_components(parts, cik, report, field):
         title, filename, _, lines = RENDERED[key]
         pinned_filename = filename if key == (cik, report["accession"]) else None
         if field == "capex":
-            expected.extend((ENDPOINT, tag, f"{title} · {label}") for tag, label in lines)
+            expected.extend((ENDPOINT, tag, f"{title} · {activity_label(key, tag)}{label}") for tag, label in lines)
             if cik == 1035002:
                 expected.extend((ENDPOINT, tag, f"{title} · {member} · {label}")
                                 for member, lines in VALERO_MEMBERS for tag, label in lines)
+        elif field in ADDITIONAL_OUTFLOWS.get(key, {}):
+            tag, label = ADDITIONAL_OUTFLOWS[key][field]
+            expected.append((ENDPOINT, tag, f"{title} · {activity_label(key, tag)}{label}"))
         elif field == "capex_reported_total" and cik in REPORTED_TOTALS:
             tag, label = REPORTED_TOTALS[cik]
             expected.append((ENDPOINT, tag, f"{title} · {label}"))
