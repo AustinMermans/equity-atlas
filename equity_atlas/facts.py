@@ -340,5 +340,18 @@ def from_esef(entries, asof, lei):
                     })
     return _assemble(groups)
 
+def exact_sec_amount(obj, statement, report, tag):
+    """Read one consolidated fact for the exact annual accession and period."""
+    taxonomy, name = tag.split(":", 1)
+    records = obj["facts"].get(taxonomy, {}).get(name, {}).get("units", {}).get(statement["currency"], [])
+    matches = {r["val"] for r in records
+               if (r.get("accn"), r.get("form"), r.get("filed"), r.get("start"), r.get("end")) ==
+               (report["accession"], report["form"], report["filed"], statement["start"], statement["end"])}
+    if len(matches) != 1:
+        return None
+    value = next(iter(matches))
+    return value if math.isfinite(value) else None
+
+
 def values(statement):
     return {key:x["value"] for key,x in statement.get("facts",{}).items()}

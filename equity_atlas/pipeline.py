@@ -10,6 +10,10 @@ import re
 import time
 
 from .capex import CAPEX_TAG, enrich_capex, supported as capex_supported
+from .depreciation import (
+    TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
+    rule_key as depreciation_rule_key, separate_partial_da,
+)
 from .operating import enrich_operating, gap_reason, supported as operating_supported
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
@@ -21,7 +25,7 @@ from .inline import inline_url, periods_from_inline
 from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
-from .sec_workbook import ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
+from .sec_workbook import DA_TAG as WORKBOOK_DA_TAG, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
 from .rendered_10q import ROUTE as RENDERED_ROUTE, periods_from_rendered_10q, rendered_10q_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
@@ -215,6 +219,16 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                     reason=gap_reason(cik,selected_filing)
                     if reason:
                         history[-1]={**history[-1],"operating_profit_gap":reason}
+                if selected_filing and depreciation_fields(cik, selected_filing):
+                    try:
+                        history[-1]=enrich_depreciation(cache,obj,meta,cik,selected_filing,history[-1])
+                    except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+                        issues.append(f"Annual depreciation and amortization for {selected['end']}: {exc}")
+                        history[-1]=separate_partial_da(history[-1],depreciation_rule_key(cik, selected_filing))
+                if selected_filing and "da" not in history[-1]["facts"]:
+                    reason=depreciation_gap(cik,selected_filing)
+                    if reason:
+                        history[-1]={**history[-1],"depreciation_gap":reason}
                 annual_anchor=annual or predecessor_annual
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
@@ -374,6 +388,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
         ),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
         "annual_operating_profit_reviewed_gaps":sum(bool((r["statement"] or {}).get("operating_profit_gap")) for r in sec_rows),
+        "annual_depreciation_profiled":sum(any(f["tag"] in {DEPRECIATION_TAG,WORKBOOK_DA_TAG}
+                                               for f in (r["statement"] or {}).get("facts",{}).values()) for r in sec_rows),
+        "annual_depreciation_reviewed_gaps":sum(bool((r["statement"] or {}).get("depreciation_gap")) for r in sec_rows),
         "interim_expected":len(expected_interims),
         "interim_available":sum(bool(r["edgar"].get("quarter")) for r in expected_interims),
     }

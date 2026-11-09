@@ -8,6 +8,7 @@ from .pipeline import run, make_public
 def main():
     p=argparse.ArgumentParser(description="Build a source-linked equity valuation snapshot")
     p.add_argument("--cache",default="data/cache")
+    p.add_argument("--filing-cache",help="separate cache for accession-scoped filings and public filing copies")
     p.add_argument("--out",default="data/screener")
     p.add_argument("--offline",action="store_true")
     choice=p.add_mutually_exclusive_group()
@@ -18,7 +19,7 @@ def main():
     p.add_argument("--ranking",help="optional local USD market-cap CSV; use source schema in README")
     p.add_argument("--overrides",help="local evidence-linked NAV or FCFE inputs")
     args=p.parse_args()
-    cache=Cache(args.cache,args.offline)
+    cache=Cache(args.cache,args.offline,filing_root=args.filing_cache)
     if args.open_market and not args.public:
         p.error("--open-market requires --public")
     if args.public:

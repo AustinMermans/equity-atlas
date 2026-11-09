@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .rendered_filing import ENDPOINT as RENDERED_FILING_ENDPOINT
+from .rendered_filing import ENDPOINT as RENDERED_FILING_ENDPOINT, parse_result as parse_rendered_result
 
 RANK = "https://companiesmarketcap.com/?download=csv"
 INDEX = "https://www.sec.gov/files/company_tickers.json"
@@ -30,8 +30,9 @@ def dump(path, obj):
     atomic(path, (json.dumps(obj, sort_keys=True, indent=2, allow_nan=False) + "\n").encode())
 
 class Cache:
-    def __init__(self, root, offline=False):
+    def __init__(self, root, offline=False, filing_root=None):
         self.root = Path(root)
+        self.filing_root = Path(filing_root) if filing_root else self.root
         self.offline = offline
         self.lock = threading.Lock()
         self.next_sec = 0.0
@@ -40,22 +41,35 @@ class Cache:
         self.user_agent = os.environ.get("ATLAS_SEC_USER_AGENT", "")
         self.hits = self.downloads = 0
 
-    def get(self, url, ttl_hours=24, *, post_json=None):
+    def get(self, url, ttl_hours=24, *, post_json=None, decode=None):
+        # Filing accessions and reviewed source copies use a long TTL.
+        root = self.filing_root if ttl_hours >= 8760 else self.root
+        def payload(data):
+            if url == RENDERED_FILING_ENDPOINT:
+                parse_rendered_result(data)
+            return decode(data) if decode else data
+
         request_key = url.encode()
         if post_json is not None:
             request_key += b"\0POST\0" + post_json
         key = hashlib.sha256(request_key).hexdigest()
-        receipt = self.root / (key + ".json")
+        receipt = root / (key + ".json")
         if receipt.exists():
             meta = json.loads(receipt.read_text())
-            body = self.root / meta["sha256"]
+            body = root / meta["sha256"]
             age = time.time() - dt.datetime.fromisoformat(meta["retrieved_at"]).timestamp()
             if body.is_file() and (self.offline or age < ttl_hours * 3600):
-                self.hits += 1
                 data = body.read_bytes()
                 if hashlib.sha256(data).hexdigest() != meta["sha256"]:
                     raise ValueError("cache checksum mismatch: " + url)
-                return data, meta
+                try:
+                    value = payload(data)
+                except ValueError:
+                    if self.offline:
+                        raise
+                else:
+                    self.hits += 1
+                    return value, meta
         if self.offline:
             raise FileNotFoundError("cache miss: " + url)
         sec = url.startswith(("https://www.sec.gov/", "https://data.sec.gov/"))
@@ -76,13 +90,14 @@ class Cache:
                     headers.update({"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
                 with urlopen(Request(url, data=post_json, headers=headers), timeout=18) as response:
                     data = response.read()
+                value = payload(data)
                 meta = {"url": url, "retrieved_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                         "sha256": hashlib.sha256(data).hexdigest()}
                 with self.lock:
-                    atomic(self.root / meta["sha256"], data)
+                    atomic(root / meta["sha256"], data)
                     dump(receipt, meta)
                     self.downloads += 1
-                return data, meta
+                return value, meta
             except HTTPError as exc:
                 if exc.code not in (429, 500, 502, 503, 504) or attempt == 2:
                     raise
@@ -96,8 +111,7 @@ class Cache:
                 time.sleep(2 ** attempt)
 
     def json(self, url, ttl_hours=24):
-        data, meta = self.get(url, ttl_hours)
-        return json.loads(data), meta
+        return self.get(url, ttl_hours, decode=json.loads)
 
 def ticker_map(cache):
     try:

@@ -9,13 +9,16 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.capex import CAPEX_TAG, REPORTED_TOTALS, supported as capex_supported, valid_capex_source
 from equity_atlas.catalog import SUCCESSIONS
+from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
+                                       profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
+                                       rule_key as depreciation_rule_key, valid_component as valid_depreciation_component)
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
 from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
 from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
-from equity_atlas.sec_workbook import PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
+from equity_atlas.sec_workbook import DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
 from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason
 from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT
@@ -36,6 +39,8 @@ quarters=0
 capex_profiles=0
 income_profiles=0
 operating_gaps=0
+depreciation_profiles=0
+depreciation_gaps=0
 prices=[]
 market=snap.get("market_sources",{})
 if open_market:
@@ -49,7 +54,7 @@ if open_market:
     if fx and (fx["date"]!=market["date"] or fx["source"]["url"]!=CBC_FX or not 15<=fx["rate"]<=60):
         raise SystemExit("Unverified same-date FX")
 
-def annual_income_cik(row, report):
+def annual_cik(row, report):
     cik = int(row["id"].removeprefix("sec:"))
     succession = SUCCESSIONS.get(cik)
     if succession and row["edgar"].get("succession") == succession:
@@ -78,6 +83,25 @@ def verify_income_fact(period, report, profile, key, fact):
             math.isfinite(part["value"]) for part, term in zip(parts, terms)) and
         fact["value"] == sum(part["sign"] * part["value"] for part in parts) and
         fact["tag"] == (OPERATING_TAG if key == "ebit" else parts[0]["tag"])
+    )
+
+
+def verify_depreciation_fact(period, report, cik, field, fact):
+    terms = depreciation_fields(cik, report).get(field)
+    parts = fact.get("components", [])
+    keys = ("url", "accession", "filed", "form", "start", "unit")
+    expected = (report["url"], report["accession"], report["filed"], report["form"], period["start"], period["currency"])
+    return (
+        terms and len(parts) == len(terms) and period["period_kind"] == "annual" and
+        period["filing"] == report["accession"] and period["end"] == report["end"] and
+        tuple(fact[k] for k in keys) == expected and fact["source"] == parts[0]["source"] and
+        fact["sha256"] == parts[0]["sha256"] and bool(fact.get("locator")) and
+        all(tuple(part[k] for k in keys) == expected and part["tag"] == tag.removeprefix("-") and
+            part["sign"] == (-1 if tag.startswith("-") else 1) and part["line"] == label and
+            math.isfinite(part["value"]) and part["value"] >= 0 and
+            re.fullmatch(r"[0-9a-f]{64}", part["sha256"]) and valid_depreciation_component(cik, report, field, part)
+            for part, (tag, label) in zip(parts, terms)) and
+        fact["value"] == sum(part["sign"] * part["value"] for part in parts)
     )
 
 
@@ -127,7 +151,8 @@ def verify_period(period, row):
     elif row["source"] == WORKBOOK_SOURCE and period is row["statement"]:
         raise SystemExit("Missing SEC workbook provenance")
     annual_report = period.get("report") if period is row["statement"] else None
-    income_profile = INCOME_PROFILES.get((annual_income_cik(row, annual_report), annual_report["accession"])) if annual_report else None
+    selected_cik = annual_cik(row, annual_report) if annual_report else None
+    income_profile = INCOME_PROFILES.get((selected_cik, annual_report["accession"])) if annual_report else None
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -185,6 +210,12 @@ def verify_period(period, row):
         if fact["tag"] == OPERATING_TAG or (income_profile and key in income_profile.fields and source == RENDERED_ENDPOINT):
             official = bool(income_profile and key in income_profile.fields and
                             verify_income_fact(period, annual_report, income_profile, key, fact))
+        if fact["tag"] == DEPRECIATION_TAG:
+            official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
+        if fact["tag"] == WORKBOOK_DA_TAG:
+            official = bool(official and workbook and selected_cik == 1046179 and key == "da" and
+                            fact.get("components") == list(DA_COMPONENTS) and all(k in period["facts"] for k in DA_COMPONENTS) and
+                            fact["value"] == sum(period["facts"][k]["value"] for k in DA_COMPONENTS))
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -222,7 +253,7 @@ for row in rows:
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
-            cik = annual_income_cik(row, report) if report else None
+            cik = annual_cik(row, report) if report else None
             profile = INCOME_PROFILES.get((cik, report["accession"])) if report else None
             if profile:
                 expected_basis = SALES_BASIS if profile.revised_sales else None
@@ -239,6 +270,26 @@ for row in rows:
             if period.get("operating_profit_gap") != expected_gap:
                 raise SystemExit(f"Unverified annual operating profit gap for {row['symbol']}")
             operating_gaps += bool(expected_gap)
+        if "annual_depreciation_profiled" in snap["stats"] and row["id"].startswith("sec:"):
+            period = row["statement"]
+            report = period.get("report")
+            cik = annual_cik(row, report) if report else None
+            fields = depreciation_fields(cik, report) if report else {}
+            facts = period["facts"]
+            profiled = any(fact["tag"] == DEPRECIATION_TAG for fact in facts.values())
+            if report and ((cik, report["accession"]) in DEPRECIATION_PINNED and fields or profiled):
+                if (any(facts.get(key, {}).get("tag") != DEPRECIATION_TAG for key in fields) or
+                        not depreciation_reconciles(depreciation_rule_key(cik, report), facts)):
+                    raise SystemExit(f"Refusing to lose reconciled depreciation and amortization for {row['symbol']}")
+                depreciation_profiles += 1
+            if cik == 1046179 and period.get("route") == WORKBOOK_ROUTE:
+                if facts.get("da", {}).get("tag") != WORKBOOK_DA_TAG:
+                    raise SystemExit("Missing TSMC workbook depreciation and amortization total")
+                depreciation_profiles += 1
+            expected_gap = depreciation_gap(cik, report) if report and "da" not in facts else None
+            if period.get("depreciation_gap") != expected_gap:
+                raise SystemExit(f"Unverified annual depreciation and amortization gap for {row['symbol']}")
+            depreciation_gaps += bool(expected_gap)
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
@@ -283,6 +334,9 @@ if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap
 if "annual_income_profiled" in snap["stats"] and (income_profiles, operating_gaps) != (
         snap["stats"]["annual_income_profiled"], snap["stats"]["annual_operating_profit_reviewed_gaps"]):
     raise SystemExit("Annual income statement coverage mismatch")
+if "annual_depreciation_profiled" in snap["stats"] and (depreciation_profiles, depreciation_gaps) != (
+        snap["stats"]["annual_depreciation_profiled"], snap["stats"]["annual_depreciation_reviewed_gaps"]):
+    raise SystemExit("Annual depreciation and amortization coverage mismatch")
 if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
         snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
     raise SystemExit("Standalone interim coverage mismatch")

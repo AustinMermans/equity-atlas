@@ -1,7 +1,15 @@
 from datetime import date
+from io import BytesIO
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from equity_atlas.catalog import cik_on
+from equity_atlas.depreciation import enrich_depreciation
+from equity_atlas.fetch import Cache
+from equity_atlas.rendered_filing import ENDPOINT
 from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
 from equity_atlas.facts import balance_check, from_sec, precise_duplicates
 from equity_atlas.inline import periods_from_inline
@@ -14,6 +22,51 @@ META = {"url": "https://data.sec.gov/api/example", "sha256": "example"}
 
 
 class EdgarTests(unittest.TestCase):
+    def test_depreciation_rule_rolls_forward_after_filing_and_scope_checks(self):
+        cik = 1551152
+        accession = "0001551152-27-000011"
+        path = "https://www.sec.gov/Archives/edgar/data/1551152/000155115227000011"
+        report = {"accession": accession, "path": path, "url": path + "/abbv.htm",
+                  "end": "2026-12-31", "filed": "2027-02-18", "form": "10-K"}
+        table_url = path + "/R29.htm"
+        cfo_tag = "us-gaap:NetCashProvidedByUsedInOperatingActivities"
+        statement = {"filing": accession, "end": report["end"], "start": "2026-01-01", "period_kind": "annual",
+                     "currency": "USD", "facts": {"cfo": {"value": 21_000_000_000, "tag": cfo_tag}}}
+        table = {"title": "Consolidated Statements of Cash Flows", "sources": [table_url], "money_scale": 1_000,
+                 "currency": "USD", "columns": ["line", "concept", "12 months to " + report["end"]],
+                 "rows": [["Depreciation", "us-gaap:Depreciation", 810_000],
+                          ["Amortization of intangible assets", "us-gaap:AmortizationOfIntangibleAssets", 7_850_000],
+                          ["Net cash from operating activities", cfo_tag, 21_000_000]]}
+        result = {"structuredContent": {"company": {"cik": cik}, "period": "annual",
+                  "filings": {"rows": [[accession, report["form"], report["filed"], report["end"], path + "/index.htm"]]},
+                  "cash_flow": table}, "_meta": {"canlicapital.com/receipt": {"sources": [
+                      {"url": table_url, "sha256_16": "a" * 16}]}}}
+        class StubCache:
+            def get(self, url, ttl, *, post_json):
+                return json.dumps({"result": result}).encode(), {"url": url, "sha256": "b" * 64}
+        def extract():
+            return enrich_depreciation(StubCache(), {"facts": {}}, META, cik, report, statement)["facts"]["da"]
+        fact = extract()
+        self.assertEqual((fact["value"], fact["table_url"]), (8_660_000_000, table_url))
+        table["rows"][1][0] = "Amortization and impairment of intangible assets"
+        with self.assertRaisesRegex(ValueError, "Missing or conflicting"):
+            extract()
+        table["sources"] = [path + "/../R29.htm"]
+        with self.assertRaisesRegex(ValueError, "Unverified"):
+            extract()
+
+    def test_filing_cache_does_not_store_invalid_responses(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = Cache(root / "mutable", filing_root=root / "filings")
+            with patch("equity_atlas.fetch.urlopen", return_value=BytesIO(b'<html>Unavailable</html>')):
+                with self.assertRaises(ValueError):
+                    cache.json("https://example.com/latest", 4)
+            with patch("equity_atlas.fetch.urlopen", return_value=BytesIO(b'{"result":{"isError":true}}')):
+                with self.assertRaises(ValueError):
+                    cache.get(ENDPOINT, 8760)
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_preferred_capital_and_consolidated_scope(self):
         year = {"start":"2025-01-01","end":"2025-12-31","filed":"2026-02-24",
                 "form":"10-K","accn":"0000000001-26-000001"}

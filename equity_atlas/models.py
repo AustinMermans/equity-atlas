@@ -415,6 +415,7 @@ def fit(case, peers, override=None):
         bridge=case["bridge"]
         if bridge is None or sales<=0 or "ebit" not in v or "capex" not in v or "da" not in v or v.get("capex",-1)<0:
             block("fcff",case.get("ev_exclusion") or case["statement"].get("operating_profit_gap") or
+                  case["statement"].get("depreciation_gap") or
                   "Needs operating profit, sales, D&A, capex and a sourced cash/debt bridge.")
         elif k in CYCLE and (not c.get("mid_margin") or c["mid_margin"]<=0):
             block("fcff","Cyclical baseline needs a positive midcycle margin from ≥5 preceding comparable years.")

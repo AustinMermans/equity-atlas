@@ -37,6 +37,13 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Install the PDF text extractor
         run: command -v pdftotext || (sudo apt-get update && sudo apt-get install -y poppler-utils)
+      - name: Reuse accession-scoped filing downloads
+        if: ${{ inputs.bootstrap != true }}
+        uses: actions/cache@v6
+        with:
+          path: data/filing-cache
+          key: edgar-filings-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: edgar-filings-v1-
       - name: Build public market and filings edition
         env:
           ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || 'Equity Atlas research (local prototype)' }}
@@ -46,7 +53,7 @@ jobs:
             mkdir -p _site
             cp site/index.html site/app.js site/style.css public-seed/snapshot.json _site/
           else
-            python -m equity_atlas --public public-issuers.csv --open-market --out _site
+            python -m equity_atlas --public public-issuers.csv --open-market --filing-cache data/filing-cache --out _site
           fi
           python scripts/verify_public.py _site/snapshot.json
       - name: Upload Pages artifact

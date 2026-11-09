@@ -12,6 +12,8 @@ from .facts import EPS_FIELDS, SHARE_FIELDS, STOCK, balance_check
 
 ROUTE = "sec_workbook"
 SOURCE = "Open10K · SEC data"
+DA_TAG = f"{ROUTE}:DepreciationAmortizationSum"
+DA_COMPONENTS = ("depreciation", "amortization")
 BASE = "https://files.open10k.com/"
 MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 REL_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
@@ -235,6 +237,11 @@ def read_workbook(blob, receipt, report, cik):
             **facts[components[0]], "value": sum(facts[k]["value"] for k in components),
             "tag": f"{ROUTE}:NoncurrentBorrowingsSum", "components": components,
             "locator": "Consolidated financial position · Noncurrent bonds payable + long-term bank loans",
+        }
+        facts["da"] = {
+            **facts[DA_COMPONENTS[0]], "value": sum(facts[k]["value"] for k in DA_COMPONENTS),
+            "tag": DA_TAG, "components": list(DA_COMPONENTS),
+            "locator": "Consolidated cash flows · Depreciation expense + amortization expense",
         }
     result = {"end": str(end), "start": start, "currency": currency, "filing": report["accession"], "facts": facts,
               "conflicts": [], "period_kind": "annual", "accounting": accounting, "report": report, "route": ROUTE}

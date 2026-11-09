@@ -17,12 +17,20 @@ def request_bytes(company, period, accession, statement=None):
     }, sort_keys=True).encode()
 
 
-def decode_response(raw, receipt, report, cik, period):
-    if receipt["url"] != ENDPOINT or len(raw) > 400_000:
-        raise ValueError("Unexpected rendered filing response source or size")
-    result = json.loads(raw)["result"]
-    if result.get("isError"):
+def parse_result(raw):
+    if len(raw) > 400_000:
+        raise ValueError("Unexpected rendered filing response size")
+    payload = json.loads(raw)
+    result = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(result, dict) or result.get("isError") or not isinstance(result.get("structuredContent"), dict):
         raise ValueError("Canli could not retrieve the rendered SEC filing")
+    return result
+
+
+def decode_response(raw, receipt, report, cik, period):
+    if receipt["url"] != ENDPOINT:
+        raise ValueError("Unexpected rendered filing response source")
+    result = parse_result(raw)
     data = result["structuredContent"]
     rows = data["filings"]["rows"]
     if data["company"]["cik"] != cik or data["period"] != period or len(rows) != 1:

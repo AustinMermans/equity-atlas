@@ -1,8 +1,8 @@
 """Recover reviewed annual cash investment lines with filing-level provenance."""
 
-import math
 import re
 
+from .facts import exact_sec_amount
 from .fetch import SEC
 from .issuer_20f import column, pdf_pages
 from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes, scaled
@@ -112,18 +112,6 @@ def supported(cik, report):
     return key in DIRECT or key in RENDERED or key in PDFS
 
 
-def direct_amount(obj, statement, report, tag):
-    taxonomy, name = tag.split(":", 1)
-    records = obj["facts"].get(taxonomy, {}).get(name, {}).get("units", {}).get(statement["currency"], [])
-    matches = {r["val"] for r in records
-               if (r.get("accn"), r.get("form"), r.get("filed"), r.get("start"), r.get("end")) ==
-               (report["accession"], report["form"], report["filed"], statement["start"], statement["end"])}
-    if len(matches) != 1:
-        return None
-    value = next(iter(matches))
-    return value if math.isfinite(value) else None
-
-
 def section(table, label):
     rows = table["rows"]
     matches = [i for i, row in enumerate(rows) if row[0] == label and row[1] is None]
@@ -162,7 +150,7 @@ def rendered_components(cache, obj, key, statement, report, component):
 
     def extract(part, tag, label, scope=""):
         value = -scaled(amount(part, tag, index, label)[0], scale)
-        direct = direct_amount(obj, statement, report, tag) if not scope else None
+        direct = exact_sec_amount(obj, statement, report, tag) if not scope else None
         if direct is not None and abs(direct) != value:
             raise ValueError(f"Cash-flow table and SEC Company Facts disagree for {label}")
         return component(tag, value, title + " · " + scope + label, receipt, table_url=url, table_sha256_16=digest)
@@ -233,7 +221,7 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     if key in RENDERED:
         parts, reported = rendered_components(cache, obj, key, statement, report, component)
     for tag, label in DIRECT.get(key, ()):
-        value = direct_amount(obj, statement, report, tag)
+        value = exact_sec_amount(obj, statement, report, tag)
         if value is None:
             raise ValueError(f"Missing exact SEC Company Facts cash outflow for {label}")
         parts.append(component(tag, value, "Consolidated cash flow · " + label, meta))

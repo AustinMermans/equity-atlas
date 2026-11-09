@@ -114,5 +114,67 @@ for symbol in reviewed_gaps:
     period = rows[symbol]["statement"]
     if "ebit" in period["facts"] or not period.get("operating_profit_gap"):
         raise SystemExit(f"{symbol}: expected a documented operating profit gap")
-issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | {"SO"}
+# Face-statement and note reconciliations, in millions of reporting currency.
+DEPRECIATION = {
+    "0857.HK": ("CNY", {"da": 238036}),
+    "ABBV": ("USD", {"da": 8139}),
+    "ABNB": ("USD", {"da": 91}),
+    "ABT": ("USD", {"da": 3116}),
+    "ACN": ("USD", {"da": 1239.157, "da_with_other": 2355.282, "operating_lease_cost": 781.808,
+                    "amortization_deferred_transition": 327.680, "other_da_adjustment": 6.637}),
+    "ADI": ("USD", {"da": 1998.845}),
+    "AEM": ("USD", {"da": 1645.297}),
+    "AMD": ("USD", {"da": 3004}),
+    "AVGO": ("USD", {"da": 8636, "amortization_with_rou": 8201}),
+    "AZN": ("USD", {"da": 5490, "da_with_impairment": 5733, "asset_impairment": 243}),
+    "BTI": ("GBP", {"da": 2245, "da_with_impairment": 2547, "asset_impairment": 302}),
+    "BUD": ("USD", {"da_with_impairment": 5652}),
+    "CRWD": ("USD", {"da": 281.451, "amortization_deferred_contract_costs": 449.413}),
+    "CSCO": ("USD", {"da_with_other": 2540, "da_tagged_component": 700}),
+    "CVNA": ("USD", {"da": 275}),
+    "DHR": ("USD", {"da": 2447}),
+    "GE": ("USD", {"da": 1220}),
+    "GEV": ("USD", {"da": 853}),
+    "GILD": ("USD", {"da": 2760}),
+    "GOOG": ("USD", {"depreciation": 21136}),
+    "IBM": ("USD", {"da": 5021}),
+    "INTC": ("USD", {"da": 11706}),
+    "ISRG": ("USD", {"da": 613.2, "depreciation_with_disposal_loss": 614.7, "amortization_with_other_assets": 62.4}),
+    "MAR": ("USD", {"da": 458, "da_with_other": 599}),
+    "MCD": ("USD", {"da": 2199, "da_general_and_administrative": 457}),
+    "MCK": ("USD", {"da": 729, "da_ppe_and_finance_lease": 287}),
+    "MRK": ("USD", {"da": 5838}),
+    "MRVL": ("USD", {"da": 1290.6}),
+    "MSFT": ("USD", {"da": 39000, "da_with_other": 38534}),
+    "NVS": ("USD", {"da": 4744}),
+    "ORCL": ("USD", {"da": 9294}),
+    "PH": ("USD", {"da": 937}),
+    "RIO": ("USD", {"da": 6577}),
+    "SAP": ("EUR", {"da": 1311}),
+    "SHEL": ("USD", {"da": 25299}),
+    "SNY": ("EUR", {"da_with_impairment": 5678}),
+    "SO": ("USD", {"da_with_accretion": 6030}),
+    "SPOT": ("EUR", {"da": 102}),
+    "TMO": ("USD", {"da": 2780}),
+    "TSLA": ("USD", {"da_with_impairment": 6148}),
+    "TSM": ("TWD", {"da": 688096.4}),
+    "TTE": ("USD", {"da_with_impairment": 13847}),
+    "TXN": ("USD", {"da": 1999}),
+    "UNP": ("USD", {"da": 2465}),
+    "VLO": ("USD", {"da": 3158, "da_cost_of_sales": 3095, "da_general_and_administrative": 63}),
+    "WMT": ("USD", {"da": 14203}),
+}
+for symbol, (currency, fields) in DEPRECIATION.items():
+    period = rows[symbol]["statement"]
+    for key, millions in fields.items():
+        fact = period["facts"].get(key, {})
+        amount = round(millions * 1_000_000)
+        if (period["currency"], fact.get("value")) != (currency, amount):
+            raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
+        checked += 1
+for symbol in ("BUD", "CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
+    period = rows[symbol]["statement"]
+    if "da" in period["facts"] or not period.get("depreciation_gap"):
+        raise SystemExit(f"{symbol}: expected a documented D&A gap")
+issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")
