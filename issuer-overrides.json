@@ -1,0 +1,10 @@
+{
+  "lei:635400Z5LQ5F9OLVT688":{
+    "nav":{
+      "period":"2026-09-11","published":"2026-09-11","currency":"USD",
+      "fair_value_assets":152100000000,"all_senior_claims":7100000000,
+      "source":"https://www.prosus.com/investors/investing-in-prosus/net-asset-value.",
+      "basis":"Issuer published market prices, private-asset analyst consensus, and pro-forma net debt. Rounded components imply $145.0B; published total $145.1B. No separate holding-company discount."
+    }
+  }
+}

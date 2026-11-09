@@ -1,0 +1,65 @@
+name: Refresh and publish screener
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: Deploy the checked public filings snapshot without a live SEC fetch
+        type: boolean
+        default: false
+  schedule:
+    - cron: '23 10 * * 1-5'
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'equity_atlas/**'
+      - 'public-issuers.csv'
+      - '.github/workflows/pages.yml'
+permissions:
+  contents: read
+concurrency:
+  group: equity-atlas-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Test finance and source invariants
+        run: python -m unittest discover -s tests -v
+      - name: Build public filings edition
+        env:
+          ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || format('Equity Atlas project https://github.com/{0}/issues', github.repository) }}
+          BOOTSTRAP: ${{ inputs.bootstrap || 'false' }}
+        run: |
+          if [ "$BOOTSTRAP" = "true" ]; then
+            mkdir -p _site
+            cp site/index.html site/app.js site/style.css public-seed/snapshot.json _site/
+          else
+            python -m equity_atlas --public public-issuers.csv --out _site
+          fi
+          python scripts/verify_public.py _site/snapshot.json
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

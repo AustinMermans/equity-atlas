@@ -1,0 +1,398 @@
+{
+  "2222.SR": {
+    "currency": "SAR",
+    "unit": 1000000,
+    "filed": "2026-03-09",
+    "url": "https://www.aramco.com/-/media/publications/corporate-reports/reports-and-presentations/2025/fy/saudi-aramco-ara-2025-english.pdf",
+    "locator": "Annual report pp. 130, 172, 174, 176; sales includes other income related to sales",
+    "years": {
+      "2025-12-31": {
+        "sales": 1671204,
+        "net": 348042,
+        "ebit": 706822,
+        "book": 1491996,
+        "assets": 2551964,
+        "liabilities": 830220,
+        "total_equity": 1721744,
+        "cash": 243099,
+        "st_investments": 14643,
+        "debt_total": 363617,
+        "minority": 229748,
+        "pretax": 702860,
+        "tax": 352650,
+        "cfo": 510798,
+        "da": 93091,
+        "capex": 190444,
+        "div": 320447,
+        "ar": 165444,
+        "inventory": 70542,
+        "ap": 157708
+      },
+      "2024-12-31": {
+        "sales": 1801674,
+        "net": 393891,
+        "ebit": 774625,
+        "book": 1458229,
+        "assets": 2423630,
+        "liabilities": 772275,
+        "total_equity": 1651355,
+        "cash": 216642,
+        "st_investments": 13186,
+        "debt_total": 319290,
+        "minority": 193126,
+        "pretax": 782010,
+        "tax": 383588,
+        "cfo": 508888,
+        "da": 91679,
+        "capex": 188890,
+        "div": 465918,
+        "ar": 167884,
+        "inventory": 83728,
+        "ap": 157467
+      },
+      "2023-12-31": {
+        "sales": 1856373,
+        "ebit": 868287
+      },
+      "2022-12-31": {
+        "sales": 2266373,
+        "ebit": 1144077
+      },
+      "2021-12-31": {
+        "sales": 1501758,
+        "ebit": 771918
+      }
+    }
+  },
+  "005930.KS": {
+    "currency": "KRW",
+    "unit": 1000000,
+    "filed": "2026-05-01",
+    "url": "https://images.samsung.com/is/content/samsung/assets/global/ir/docs/2025_4Q_Interim_Report.pdf",
+    "locator": "Samsung Electronics 2025 Business Report pp. 47–50, 55–57; conservative availability date",
+    "years": {
+      "2025-12-31": {
+        "sales": 333605938,
+        "net": 44260956,
+        "ebit": 43601051,
+        "book": 424313255,
+        "preferred": 119467,
+        "assets": 566942110,
+        "liabilities": 130621773,
+        "total_equity": 436320337,
+        "cash": 57856378,
+        "st_investments": 67965021,
+        "debt_total": 25239139,
+        "minority": 12007082,
+        "pretax": 49481471,
+        "tax": 4274666,
+        "cfo": 85315148,
+        "capex": 52153149,
+        "ar": 51127642,
+        "inventory": 52636828,
+        "ap": 13039380
+      },
+      "2024-12-31": {
+        "sales": 300870903,
+        "net": 33621363,
+        "ebit": 32725961,
+        "book": 391687603,
+        "preferred": 119467,
+        "assets": 514531948,
+        "liabilities": 112339878,
+        "total_equity": 402192070,
+        "cash": 53705579,
+        "st_investments": 58909334,
+        "debt_total": 19330184,
+        "minority": 10504467,
+        "pretax": 37529734,
+        "tax": 3078383,
+        "cfo": 72982621,
+        "capex": 53741639,
+        "ar": 43623073,
+        "inventory": 51754865,
+        "ap": 12370177
+      }
+    }
+  },
+  "TCEHY": {
+    "currency": "CNY",
+    "unit": 1000000,
+    "filed": "2026-04-09",
+    "url": "https://static.www.tencent.com/uploads/2026/04/09/62d786fcf3d3c8cb7e54791ee95439ac.pdf",
+    "locator": "Tencent Annual Report 2025, financial summary and consolidated income statement p. 129",
+    "years": {
+      "2025-12-31": {
+        "sales": 751766,
+        "net": 224842,
+        "ebit": 241562,
+        "book": 1154152,
+        "assets": 2038986,
+        "pretax": 277249,
+        "tax": 47448
+      },
+      "2024-12-31": {
+        "sales": 660257,
+        "net": 194073,
+        "ebit": 208099,
+        "book": 973548,
+        "assets": 1780995,
+        "pretax": 241485,
+        "tax": 45018
+      }
+    }
+  },
+  "000660.KS": {
+    "currency": "KRW",
+    "unit": 1000000000,
+    "filed": "2026-01-28",
+    "url": "https://news.skhynix.com/en/sk-hynix-announces-fy25-financial-results/",
+    "locator": "FY2025 financial results table; income is consolidated including any non-controlling interests",
+    "net_scope": "consolidated",
+    "years": {
+      "2025-12-31": {
+        "sales": 97146.7,
+        "net": 42947.9,
+        "ebit": 47206.3
+      },
+      "2024-12-31": {
+        "sales": 66193.0,
+        "net": 19796.9,
+        "ebit": 23467.3
+      }
+    }
+  },
+  "TM": {
+    "currency": "JPY",
+    "unit": 1000000,
+    "filed": "2026-05-08",
+    "url": "https://global.toyota/pages/global_toyota/ir/financial-results/2026_4q_summary_en.pdf",
+    "locator": "Toyota FY2026 Financial Summary pp. 7–9; unaudited release",
+    "years": {
+      "2026-03-31": {
+        "sales": 50684952,
+        "net": 3848098,
+        "ebit": 3766216,
+        "book": 39918854,
+        "assets": 105522331,
+        "liabilities": 64502263,
+        "total_equity": 41020068,
+        "cash": 12659622,
+        "pretax": 5152996,
+        "tax": 1167234
+      }
+    }
+  },
+  "MC.PA": {
+    "currency": "EUR",
+    "unit": 1000000,
+    "filed": "2026-01-27",
+    "url": "https://www.lvmh.com/en/publications/solid-performance-in-a-disrupted-global-economic-and-geopolitical-environment",
+    "locator": "2025 results, key figures table; recurring operating profit is not mapped to reported EBIT",
+    "years": {
+      "2025-12-31": {
+        "sales": 80807,
+        "net": 10878
+      }
+    }
+  },
+  "TSM": {
+    "currency": "TWD",
+    "unit": 1000,
+    "filed": "2026-04-30",
+    "url": "https://investor.tsmc.com/sites/ir/financial-report/2025/TSMC%202025Q4%20Consolidated%20Financial%20Statements_E_0.pdf",
+    "locator": "TSMC FY2025 consolidated financial statements; conservative availability date",
+    "years": {
+      "2025-12-31": {
+        "sales": 3809054272,
+        "ebit": 1936091677,
+        "net": 1717882627,
+        "book": 5419595994,
+        "total_equity": 5460795283,
+        "assets": 7933023878,
+        "pretax": 2041662840,
+        "tax": 326266060
+      }
+    }
+  },
+  "BHP": {
+    "currency": "USD",
+    "unit": 1000000,
+    "filed": "2026-08-18",
+    "url": "https://www.bhp.com/-/media/documents/investors/annual-reports/2026/260818_bhpannualreport2026",
+    "locator": "BHP Annual Report 2026 pp. 128–129 and 208",
+    "years": {
+      "2026-06-30": {
+        "sales": 58760,
+        "ebit": 23869,
+        "net": 9833,
+        "book": 50923,
+        "total_equity": 56321,
+        "assets": 121387,
+        "liabilities": 65066,
+        "cash": 18532,
+        "pretax": 22414,
+        "tax": 9388,
+        "cfo": 21778
+      }
+    }
+  },
+  "SPCX": {
+    "currency": "USD",
+    "unit": 1000000,
+    "filed": "2026-06-15",
+    "url": "https://www.sec.gov/Archives/edgar/data/1181412/000162828026042639/spaceexplorationtechnologi.htm",
+    "locator": "SEC prospectus, audited consolidated income statement; conservative availability date",
+    "net_scope": "consolidated",
+    "accounting": "US GAAP",
+    "years": {
+      "2023-12-31": {
+        "sales": 10387,
+        "ebit": -3505,
+        "net": -4628
+      },
+      "2024-12-31": {
+        "sales": 14015,
+        "ebit": 466,
+        "net": 791
+      },
+      "2025-12-31": {
+        "sales": 18674,
+        "ebit": -2589,
+        "net": -4937
+      }
+    }
+  },
+  "601288.SS": {
+    "currency": "CNY",
+    "unit": 1000000,
+    "filed": "2026-03-30",
+    "url": "https://www.abchina.com/en/investor-relations/performance-reports/annual-reports/202603/P020260330616956112683.pdf",
+    "locator": "Agricultural Bank FY2025 statement of position p. 7 and EPS note 11; equity and earnings after preference shares and perpetual bonds",
+    "net_scope": "common",
+    "years": {
+      "2025-12-31": {
+        "net": 273956,
+        "book": 2767182,
+        "assets": 48784674,
+        "total_equity": 3243371
+      },
+      "2024-12-31": {
+        "net": 262800,
+        "book": 2590808,
+        "assets": 43238135,
+        "total_equity": 3097273
+      }
+    }
+  },
+  "601939.SS": {
+    "currency": "CNY",
+    "unit": 1000000000,
+    "filed": "2026-03-27",
+    "url": "https://company.ccb.com/eng/2026-03/27/article_2026032720180062548.shtml",
+    "locator": "2025 issuer results announcement; consolidated profit, no common-equity claim",
+    "net_scope": "consolidated",
+    "years": {
+      "2025-12-31": {
+        "sales": 740.871,
+        "net": 339.79,
+        "assets": 45630,
+        "liabilities": 41950
+      }
+    }
+  },
+  "ALV.DE": {
+    "currency": "EUR",
+    "unit": 1000000,
+    "filed": "2026-03-13",
+    "url": "https://www.allianz.com/en/investor_relations/results-reports/financial-statements.html",
+    "locator": "2025 consolidated income and balance sheet",
+    "years": {
+      "2025-12-31": {
+        "net": 10775,
+        "book": 62722,
+        "assets": 1024276,
+        "liabilities": 957928,
+        "total_equity": 66349,
+        "pretax": 15460,
+        "tax": 4030
+      },
+      "2024-12-31": {
+        "net": 9931,
+        "book": 60287,
+        "assets": 1044578,
+        "liabilities": 980502,
+        "total_equity": 64076,
+        "pretax": 14016,
+        "tax": 3476
+      }
+    }
+  },
+  "SIE.DE": {
+    "currency": "EUR",
+    "unit": 1000000,
+    "filed": "2026-05-01",
+    "url": "https://assets.new.siemens.com/siemens/assets/api/uuid%3A428ea18a-e7ab-4f93-a160-33908f1c3540/Siemens-Annual-Report-2025.pdf",
+    "locator": "FY2025 consolidated income and balance sheet; net includes discontinued operations; conservative availability date",
+    "years": {
+      "2025-09-30": {
+        "sales": 78914,
+        "net": 9620,
+        "book": 62244,
+        "total_equity": 68371,
+        "assets": 166202,
+        "liabilities": 97830
+      },
+      "2024-09-30": {
+        "sales": 75930,
+        "net": 8301,
+        "book": 51264,
+        "total_equity": 56231,
+        "assets": 147812,
+        "liabilities": 91581
+      }
+    }
+  },
+  "RO.SW": {
+    "currency": "CHF",
+    "unit": 1000000,
+    "filed": "2026-01-29",
+    "url": "https://www.roche.com/media/releases/med-cor-2026-01-29",
+    "locator": "FY2025 key figures; IFRS consolidated net, not core EBIT or parent-only earnings",
+    "net_scope": "consolidated",
+    "years": {
+      "2025-12-31": {
+        "sales": 61516,
+        "net": 13799
+      },
+      "2024-12-31": {
+        "sales": 60495,
+        "net": 9187
+      }
+    }
+  },
+  "CBA.AX": {
+    "currency": "AUD",
+    "unit": 1000000,
+    "filed": "2026-08-12",
+    "url": "https://www.commbank.com.au/content/dam/commbank-assets/investors/2026/CBA-2026-Annual-Report-print.pdf",
+    "locator": "FY2026 Annual Report consolidated income and balance sheet pp. 185–188; net includes discontinued operations",
+    "net_scope": "common",
+    "years": {
+      "2026-06-30": {
+        "sales": 30153,
+        "net": 10866,
+        "book": 78704,
+        "assets": 1452456,
+        "liabilities": 1373752
+      },
+      "2025-06-30": {
+        "sales": 28290,
+        "net": 10116,
+        "book": 78776,
+        "assets": 1353799,
+        "liabilities": 1275023
+      }
+    }
+  }
+}
