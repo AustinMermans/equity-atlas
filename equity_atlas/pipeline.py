@@ -444,6 +444,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
         "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
+        "annual_cash_evidence":sum(bool((r["statement"] or {}).get("annual_cash_balance")) for r in sec_rows),
         "annual_cash_available":sum("cash" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_cash_scoped_gaps":sum(bool((r["statement"] or {}).get("cash_gap")) for r in sec_rows),
         "annual_parent_equity_available":sum("book" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),

@@ -436,6 +436,21 @@ if rows["TD"]["statement"]["facts"]["preferred_and_other_equity"]["value"] != 11
 checked += 1
 # Annual cash scopes independently reconciled to the selected filings.
 CASH_BALANCES = {
+    "ADP": ("USD", {"cash": 4230.1, "cash_including_restricted": 10625.2, "restricted_cash": 6395.1}),
+    "AMZN": ("USD", {"cash": 86810, "cash_including_restricted": 90106, "restricted_cash": 3296,
+                      "restricted_cash_current": 300, "restricted_cash_noncurrent": 2996}),
+    "CME": ("USD", {"cash": 4416.9, "cash_including_restricted": 164079.5, "restricted_cash": 6.5,
+                     "cash_held_for_customers": 159656.1}),
+    "ENB": ("CAD", {"cash": 1094, "cash_including_restricted": 1320, "restricted_cash": 226,
+                     "restricted_cash_current": 83, "restricted_cash_noncurrent": 143}),
+    "EQIX": ("USD", {"cash": 1727, "cash_including_restricted": 1824, "restricted_cash": 97,
+                      "restricted_cash_current": 60, "restricted_cash_noncurrent": 37}),
+    "IBKR": ("USD", {"cash": 4963, "cash_including_restricted": 55295, "restricted_cash": 50332}),
+    "ICE": ("USD", {"cash": 837, "cash_including_restricted": 78614, "restricted_cash": 988,
+                     "restricted_cash_current": 748, "restricted_cash_noncurrent": 240, "cash_held_for_customers": 76789}),
+    "META": ("USD", {"cash": 35873, "cash_including_restricted": 39100, "restricted_cash": 3227,
+                      "restricted_cash_current": 837, "restricted_cash_noncurrent": 2390}),
+    "PDD": ("CNY", {"cash": 108900.587, "cash_including_restricted": 182731.411, "restricted_cash_current": 73830.824}),
     "ABNB": ("USD", {"cash": 6560, "cash_including_restricted": 13486, "cash_held_for_customers": 6891,
                      "restricted_cash": 35}),
     "AXP": ("USD", {"cash": 47623, "cash_including_restricted": 47792, "restricted_cash": 169}),

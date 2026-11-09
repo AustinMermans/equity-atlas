@@ -7,9 +7,10 @@ import unittest
 from unittest.mock import patch
 
 from equity_atlas.capex import cash_activity, enrich_capex, valid_capex_components
+from equity_atlas.cash_balance import BALANCE_CASH, CURRENT_RESTRICTED, TOTAL, cash_facts, enrich_cash
 from equity_atlas.catalog import cik_on
 from equity_atlas.depreciation import enrich_depreciation
-from equity_atlas.fetch import Cache
+from equity_atlas.fetch import Cache, SEC
 from equity_atlas.rendered_filing import ENDPOINT
 from equity_atlas.sec_rendered import read_cash_flow
 from equity_atlas.operating import enrich_operating
@@ -25,6 +26,40 @@ META = {"url": "https://data.sec.gov/api/example", "sha256": "example"}
 
 
 class EdgarTests(unittest.TestCase):
+    def test_standard_cash_bridge_uses_one_accession_and_distinct_maturities(self):
+        cik = 1018724
+        accession = "0001018724-26-000004"
+        report = {"accession": accession, "end": "2025-12-31", "filed": "2026-02-06", "form": "10-K",
+                  "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231.htm"}
+        meta = {"url": SEC.format(cik), "sha256": "a" * 64}
+        record = {"accn": accession, "end": report["end"], "filed": report["filed"], "form": report["form"]}
+        values = {BALANCE_CASH: 86810, TOTAL: 90106, CURRENT_RESTRICTED: 300,
+                  "us-gaap:RestrictedCashCurrent": 300, "us-gaap:RestrictedCashNoncurrent": 2996}
+        concepts = {tag.split(":")[1]: {"units": {"USD": [{**record, "val": value}]}} for tag, value in values.items()}
+        obj = {"facts": {"us-gaap": concepts}}
+        source = {"accession": accession, "filed": report["filed"], "form": report["form"], "url": report["url"],
+                  "unit": "USD", "start": None, "source": meta["url"], "sha256": meta["sha256"]}
+        operating = {**source, "tag": BALANCE_CASH, "value": 86810}
+        period = {"filing": accession, "end": report["end"], "start": "2025-01-01", "period_kind": "annual",
+                  "currency": "USD", "facts": {"cash": operating, "assets": {**source, "value": 200000}}}
+
+        result = enrich_cash(None, obj, meta, cik, report, period)
+        facts = result["facts"]
+        self.assertEqual(facts["cash"], operating)
+        self.assertEqual(facts["restricted_cash"]["value"], 3296)
+        self.assertEqual([part["value"] for part in facts["restricted_cash"]["components"]], [300, 2996])
+        evidence = result["annual_cash_balance"]
+        self.assertEqual(cash_facts(cik, report, result, evidence)["restricted_cash"], facts["restricted_cash"])
+        evidence["lines"]["restricted_cash_current"]["unit"] = "CAD"
+        with self.assertRaisesRegex(ValueError, "Unverified cash balance"):
+            cash_facts(cik, report, result, evidence)
+
+        concepts["RestrictedCashCurrent"]["units"]["USD"][0]["val"] = 301
+        self.assertEqual(enrich_cash(None, obj, meta, cik, report, period), period)
+        concepts["RestrictedCashCurrent"]["units"]["USD"][0]["val"] = 300
+        concepts["RestrictedCashNoncurrent"]["units"]["USD"][0]["accn"] = "0001018724-25-000001"
+        self.assertEqual(enrich_cash(None, obj, meta, cik, report, period), period)
+
     def test_sec_cash_flow_fallback_uses_current_year_and_separates_financing_first(self):
         cfo = "ifrs-full:CashFlowsFromUsedInOperatingActivities"
         investing = "ifrs-full:CashFlowsFromUsedInInvestingActivities"

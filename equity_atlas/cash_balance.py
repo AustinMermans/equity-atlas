@@ -12,6 +12,22 @@ TAG = "derived:FiledCashBalance"
 TOTAL = "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
 RESTRICTED = "us-gaap:RestrictedCashAndCashEquivalents"
 BROAD = "cash_including_restricted"
+RESTRICTED_CASH = "restricted_cash"
+CURRENT_CASH = "restricted_cash_current"
+NONCURRENT_CASH = "restricted_cash_noncurrent"
+BALANCE_CASH = "us-gaap:CashAndCashEquivalentsAtCarryingValue"
+CURRENT_RESTRICTED = "us-gaap:RestrictedCashAndCashEquivalentsAtCarryingValue"
+CASH_FLOW_TOTAL = "Cash-flow total including restricted cash"
+STANDARD_RESTRICTIONS = {
+    RESTRICTED_CASH: (RESTRICTED, "us-gaap:RestrictedCash", "us-gaap:RestrictedCashEquivalents"),
+    CURRENT_CASH: (CURRENT_RESTRICTED, "us-gaap:RestrictedCashCurrent"),
+    NONCURRENT_CASH: ("us-gaap:RestrictedCashAndCashEquivalentsNoncurrent", "us-gaap:RestrictedCashNoncurrent"),
+}
+RESTRICTION_LABELS = {
+    RESTRICTED_CASH: "Restricted cash and equivalents included in the cash-flow total",
+    CURRENT_CASH: "Current restricted cash and equivalents",
+    NONCURRENT_CASH: "Noncurrent restricted cash and equivalents",
+}
 AIRBNB = (1559720, "0001559720-26-000004")
 GOLDMAN = (886982, "0000886982-26-000091")
 MORGAN = (895421, "0000895421-26-000086")
@@ -32,7 +48,22 @@ PGR = (80661, "0000080661-26-000086")
 SBUX = (829224, "0000829224-25-000114")
 WFC = (72971, "0000072971-26-000133")
 HOLD_UNVERIFIED = CORRECT_EXISTING | {WFC}
-REVIEW_EXISTING = HOLD_UNVERIFIED | {AIRBNB, VISA}
+CME = (1156375, "0001156375-26-000009")
+ICE = (1571949, "0001571949-26-000004")
+IBKR = (1381197, "0001381197-26-000062")
+ADP = (8670, "0000008670-26-000030")
+CLIENT_CASH_FLOW = {
+    ADP: {RESTRICTED_CASH: (RESTRICTED, "Restricted cash and equivalents included in funds held for clients")},
+    CME: {CURRENT_CASH: (CURRENT_RESTRICTED,
+                            "Short-term restricted cash within other current assets"),
+          "cash_held_for_customers": ("us-gaap:GoodFaithAndMarginDepositsWithBrokerDealers",
+                                      "Restricted cash in performance bonds and guaranty fund contributions")},
+    ICE: {CURRENT_CASH: (CURRENT_RESTRICTED, "Short-term restricted cash and equivalents"),
+          NONCURRENT_CASH: ("us-gaap:RestrictedCashAndCashEquivalentsNoncurrent", "Long-term restricted cash and equivalents"),
+          "cash_held_for_customers": ("us-gaap:DepositsAssetsCurrent", "Cash margin deposits and guaranty funds")},
+    IBKR: {RESTRICTED_CASH: ("us-gaap:CashReserveDepositRequiredAndMade", "Cash segregated for regulatory purposes")},
+}
+REVIEW_EXISTING = HOLD_UNVERIFIED | {AIRBNB, VISA} | CLIENT_CASH_FLOW.keys()
 
 # Match the printed cash captions within the consolidated asset section.
 FACE = {
@@ -69,6 +100,8 @@ FACE = {
 # A subtotal published in billions carries that precision through the split.
 RESTRICTED_ROUNDING = {BAC: 100_000_000, JPM: 100_000_000}
 TAGGED = {
+    **{key: {BROAD: (TOTAL, "Cash-flow total including segregated or client cash"), **components}
+       for key, components in CLIENT_CASH_FLOW.items()},
     AIRBNB: {BROAD: (TOTAL, "Note 3 · Cash-flow total including customer balances and restricted cash"),
              "restricted_cash": (RESTRICTED, "Note 3 · Restricted cash in prepaids and other current assets")},
     GOLDMAN: {BROAD: (TOTAL, "Balance sheet · Cash and equivalents including segregated cash"),
@@ -164,12 +197,59 @@ def cash_gap(cik, report, facts):
     return None if "cash" in facts else GAPS.get(rule_key(cik, report))
 
 
+def standard_fields(inputs):
+    """Require a reported subtotal or a current/noncurrent split with no overlap."""
+    restrictions = inputs.keys() - {BROAD}
+    if BROAD not in inputs or not restrictions or not (
+        restrictions == {RESTRICTED_CASH} or restrictions <= {CURRENT_CASH, NONCURRENT_CASH}
+    ):
+        raise ValueError("Unsupported restricted cash component set")
+    fields = {BROAD: (TOTAL, CASH_FLOW_TOTAL)}
+    for field in restrictions:
+        tag = inputs[field]["tag"]
+        if tag not in STANDARD_RESTRICTIONS[field]:
+            raise ValueError(f"Unexpected restricted cash concept for {field}")
+        fields[field] = tag, RESTRICTION_LABELS[field]
+    return fields
+
+
+def standard_lines(amount, cash):
+    """Use the full set of reported components for a single presentation."""
+    total = amount(TOTAL)
+    if type(total) is not int or total <= cash:
+        return {}
+
+    reported = {}
+    for field, aliases in STANDARD_RESTRICTIONS.items():
+        tagged = [(tag, value) for tag in aliases if (value := amount(tag)) is not None]
+        if any(type(value) is not int or value < 0 for _, value in tagged) or len({v for _, v in tagged}) > 1:
+            return {}
+        if tagged:
+            reported[field] = (*tagged[0], RESTRICTION_LABELS[field])
+
+    delta = total - cash
+    split = {field: reported[field] for field in (CURRENT_CASH, NONCURRENT_CASH) if field in reported}
+    if RESTRICTED_CASH in reported and reported[RESTRICTED_CASH][1] != delta:
+        return {}
+    split_total = sum(part[1] for part in split.values())
+    if split_total == delta:
+        components = split
+    elif RESTRICTED_CASH in reported and split_total < delta:
+        components = {RESTRICTED_CASH: reported[RESTRICTED_CASH]}
+    else:
+        return {}
+    return {BROAD: (TOTAL, total, CASH_FLOW_TOTAL), **components}
+
+
 def cash_facts(cik, report, period, evidence):
     """Reconstruct the published amounts from reviewed, same-accession evidence."""
     key = rule_key(cik, report)
     face, tagged = FACE.get(key, {}), TAGGED.get(key, {})
     note = NOTE_FIELDS.get(key, {})
     inputs = evidence["lines"]
+    standard = key not in PINNED
+    if standard:
+        tagged = standard_fields(inputs)
     if ((period["period_kind"], period["filing"], period["end"]) != ("annual", report["accession"], report["end"])
             or not inputs or inputs.keys() != (face.keys() | tagged.keys() | note.keys())):
         raise ValueError("Cash evidence is outside the selected annual filing")
@@ -191,6 +271,23 @@ def cash_facts(cik, report, period, evidence):
                 or (field in tagged and (part["source"] != SEC.format(cik) or "table_url" in part))):
             raise ValueError(f"Unverified cash balance for {field}")
         result[field] = {**part, "tag": TAG, "locator": label, "components": [part]}
+    if standard or key in CLIENT_CASH_FLOW:
+        operating = facts["cash"]
+        combined = inputs[BROAD]
+        components = [part for field, part in inputs.items() if field != BROAD]
+        if (operating["tag"] != BALANCE_CASH or operating["source"] != SEC.format(cik)
+                or operating["sha256"] != combined["sha256"]
+                or any(part["sha256"] != combined["sha256"] for part in components)
+                or tuple(operating[k] for k in keys) != scope
+                or type(operating["value"]) is not int or operating["value"] < 0
+                or operating["value"] + sum(part["value"] for part in components) != combined["value"]):
+            raise ValueError("Company cash and the reported restrictions do not reconcile to the cash-flow total")
+        if RESTRICTED_CASH not in result:
+            split = [inputs[field] for field in (CURRENT_CASH, NONCURRENT_CASH) if field in inputs]
+            result[RESTRICTED_CASH] = {
+                **split[0], "tag": TAG, "value": sum(part["value"] for part in split), "components": split,
+                "locator": "Restricted cash and equivalents across balance-sheet maturities",
+            }
     if key in RESTRICTED_ROUNDING:
         increment = RESTRICTED_ROUNDING[key]
         if result["restricted_cash"]["value"] % increment:
@@ -274,7 +371,11 @@ def cash_facts(cik, report, period, evidence):
 def enrich_cash(cache, obj, meta, cik, report, period):
     key = rule_key(cik, report)
     face, tagged = FACE.get(key, {}), TAGGED.get(key, {})
-    if key not in PROFILED or ("cash" in period["facts"] and key not in REVIEW_EXISTING):
+    if key in PROFILED and "cash" in period["facts"] and key not in REVIEW_EXISTING:
+        return period
+    operating = period["facts"].get("cash", {})
+    if key not in PROFILED and (operating.get("tag") != BALANCE_CASH or operating.get("source") != SEC.format(cik)
+                               or operating.get("sha256") != meta["sha256"]):
         return period
     stock = {**period, "start": None}
     evidence = {"lines": {}}
@@ -284,6 +385,17 @@ def enrich_cash(cache, obj, meta, cik, report, period):
         return {**evidence, "value": value, "line": line, "tag": tag, "sign": 1, "source": receipt["url"],
                 "sha256": receipt["sha256"], "unit": period["currency"], "start": None,
                 **{k: report[k] for k in ("accession", "filed", "form", "url")}}
+
+    def amount(tag):
+        return exact_sec_amount(obj, stock, report, tag)
+
+    if key not in PROFILED:
+        if amount(BALANCE_CASH) != operating["value"]:
+            return period
+        for field, (tag, value, label) in standard_lines(amount, operating["value"]).items():
+            parts[field] = part(tag, label, value, meta)
+        if not parts:
+            return period
 
     if face:
         table, index, receipt, table_source = annual_table(cache, cik, report, period, "balance_sheet", None)
@@ -297,7 +409,7 @@ def enrich_cash(cache, obj, meta, cik, report, period):
         evidence["asset_anchor"] = scaled(consolidated[end][index], scale)
         for field, (tag, label) in face.items():
             value, = (scaled(row[index], scale) for row in consolidated[:end] if row[:2] == [label, tag])
-            exact = exact_sec_amount(obj, stock, report, tag)
+            exact = amount(tag)
             if exact is not None and exact != value:
                 raise ValueError(f"Cash line disagrees with SEC Company Facts for {label}")
             parts[field] = part(tag, label, value, receipt, **table_source)
@@ -316,7 +428,7 @@ def enrich_cash(cache, obj, meta, cik, report, period):
         parts["restricted_cash"] = part(*HDFC_NOTE, scaled(amount[1].replace(",", ""), 1_000_000), receipt,
                                         table_url=url, table_sha256_16=digests.get(url, ""))
     for field, (tag, label) in tagged.items():
-        value = exact_sec_amount(obj, stock, report, tag)
+        value = amount(tag)
         if value is None:
             raise ValueError(f"Missing exact SEC Company Facts cash balance for {label}")
         parts[field] = part(tag, label, value, meta)
