@@ -13,7 +13,10 @@ from .facts import EPS_FIELDS, SHARE_FIELDS, STOCK, balance_check
 ROUTE = "sec_workbook"
 SOURCE = "Open10K · SEC data"
 DA_TAG = f"{ROUTE}:DepreciationAmortizationSum"
-DA_COMPONENTS = ("depreciation", "amortization")
+DA_COMPONENTS = {
+    1144967: ("da_ppe", "amortization"),
+    1046179: ("depreciation", "amortization"),
+}
 CAPEX_TAG = f"{ROUTE}:CashCapitalInvestmentSum"
 CAPEX_COMPONENTS = ("capex_ppe", "capex_intangibles")
 BASE = "https://files.open10k.com/"
@@ -76,6 +79,8 @@ STATEMENTS = {
         },
         "CONSOLIDATED STATEMENTS OF CASH FLOWS": {
             "cfo": "NetCashProvidedByUsedInOperatingActivities", "capex": "PaymentsToAcquirePropertyPlantAndEquipment",
+            "da_ppe": "OtherDepreciationAndAmortization", "amortization": "AmortizationOfIntangibleAssets",
+            "amortization_deferred_customer_acquisition": "AmortizationOfDeferredSalesCommissions",
             "div_total": "PaymentsOfDividends", "lt_issued": "ProceedsFromIssuanceOfLongTermDebt",
             "lt_repaid": "RepaymentsOfLongTermDebt",
         },
@@ -234,6 +239,28 @@ def read_workbook(blob, receipt, report, cik):
             }
 
     facts["net"] = facts["net_parent"].copy()
+    if cik == 1144967:
+        for key in DA_COMPONENTS[cik]:
+            concept = STATEMENTS[cik]["CONSOLIDATED STATEMENTS OF CASH FLOWS"][key]
+            try:
+                income = {Decimal(row["O"]) for row in rows["CONSOLIDATED STATEMENTS OF INCOME", concept]
+                          if row.get("N") == currency}
+            except (InvalidOperation, KeyError) as exc:
+                raise ValueError(f"Invalid HDFC income statement amount for {key}") from exc
+            if income != {facts[key]["value"]}:
+                raise ValueError(f"HDFC income and cash-flow statements disagree on {key}")
+    if cik in DA_COMPONENTS:
+        components = DA_COMPONENTS[cik]
+        if any(facts[key]["value"] < 0 for key in components):
+            raise ValueError("SEC workbook depreciation and amortization must be nonnegative")
+        facts["da"] = {
+            **facts[components[0]], "value": sum(facts[key]["value"] for key in components),
+            "tag": DA_TAG, "components": list(components),
+            "locator": "Consolidated cash flows · " + (
+                "Sum of the separate D&A and intangible amortization lines" if cik == 1144967
+                else "Depreciation expense + amortization expense"
+            ),
+        }
     if cik == 1046179:
         components = ["bonds_noncurrent", "bank_loans_noncurrent"]
         facts["debt_noncurrent"] = {
@@ -241,14 +268,11 @@ def read_workbook(blob, receipt, report, cik):
             "tag": f"{ROUTE}:NoncurrentBorrowingsSum", "components": components,
             "locator": "Consolidated financial position · Noncurrent bonds payable + long-term bank loans",
         }
-        for field, tag, components, label in (
-            ("da", DA_TAG, DA_COMPONENTS, "Depreciation expense + amortization expense"),
-            ("capex", CAPEX_TAG, CAPEX_COMPONENTS, "Purchases of property, plant and equipment + purchases of intangible assets"),
-        ):
-            facts[field] = {
-                **facts[components[0]], "value": sum(facts[k]["value"] for k in components),
-                "tag": tag, "components": list(components), "locator": f"Consolidated cash flows · {label}",
-            }
+        facts["capex"] = {
+            **facts[CAPEX_COMPONENTS[0]], "value": sum(facts[k]["value"] for k in CAPEX_COMPONENTS),
+            "tag": CAPEX_TAG, "components": list(CAPEX_COMPONENTS),
+            "locator": "Consolidated cash flows · Purchases of property, plant and equipment + purchases of intangible assets",
+        }
     result = {"end": str(end), "start": start, "currency": currency, "filing": report["accession"], "facts": facts,
               "conflicts": [], "period_kind": "annual", "accounting": accounting, "report": report, "route": ROUTE}
     check = balance_check(result)

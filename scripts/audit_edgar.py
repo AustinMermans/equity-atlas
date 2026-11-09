@@ -114,6 +114,8 @@ OTHER_CASH_FLOWS = (
     ("TD", "capex_net_of_disposals", 2_145_000_000),
     ("UBS", "capex_disposal_proceeds", 209_000_000),
     ("BNS", "capex_net_of_disposals", 347_000_000),
+    ("HSBC", "capex_net_of_disposals", 1_447_000_000),
+    ("HSBC", "capex_net_intangibles", 3_214_000_000),
     ("MS", "capex_net_of_disposals", 2_898_000_000),
     ("RY", "capex_net_of_disposals", 2_243_000_000),
     ("PLD", "capex_property_acquisitions", 1_800_527_000),
@@ -265,6 +267,10 @@ for symbol, fields in SCOPED_LINES.items():
         checked += 1
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
+    "HDB": ("INR", {"da": 61832.3, "da_ppe": 41150.7, "amortization": 20681.6,
+                    "amortization_deferred_customer_acquisition": 52259.1}),
+    "HSBC": ("USD", {"da_with_impairment": 4916, "ppe_da_with_impairment_and_rou": 1971,
+                     "amortization_with_impairment": 2945}),
     "AXP": ("USD", {"da": 1777}),
     "BMO": ("CAD", {"da": 2180, "da_ppe": 1015, "depreciation_other_assets": 13, "amortization": 1152}),
     "BX": ("USD", {"depreciation": 98, "amortization": 36.023}),

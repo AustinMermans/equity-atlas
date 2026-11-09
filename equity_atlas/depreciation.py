@@ -3,7 +3,7 @@
 from datetime import date
 import re
 
-from .capex import PDFS
+from .capex import HSBC, PDFS
 from .catalog import SUCCESSIONS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
@@ -65,7 +65,14 @@ TD_DEPRECIATION = ("ifrs-full:AdjustmentsForDepreciationExpense", "Depreciation"
 TD_AMORTIZATION = ("td:AdjustmentsForAmortizationExpenseOfOtherIntangibles", "Amortization of other intangibles")
 UBS = (1610520, "0001610520-26-000023")
 
+HSBC_CASH_DA = (IFRS_CASH_DA_AND_IMPAIRMENT, "Depreciation, amortisation and impairment")
+HSBC_PPE_DA = ("ifrs-full:DepreciationPropertyPlantAndEquipmentIncludingRightofuseAssets",
+               "Note 6 · Depreciation and impairment of PP&E and right-of-use assets")
+
 CASH_TABLES = {
+    HSBC: (
+        "Consolidated statement of cash flows", "R9.htm", 1_000_000, {"da_with_impairment": (HSBC_CASH_DA,)},
+    ),
     (4962, "0000004962-26-000080"): (  # AXP
         "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {"da": (CASH_DA,)},
     ),
@@ -546,6 +553,13 @@ FINANCE_LEASE_DA = ("us-gaap:FinanceLeaseRightOfUseAssetAmortization", "Leases n
 RETIREMENT_ACCRETION = ("us-gaap:AssetRetirementObligationAccretionExpense", "Asset retirement obligations note · Accretion expense")
 
 NOTES = {
+    HSBC: {
+        "ppe_da_with_impairment_and_rou": (HSBC_PPE_DA,),
+        "amortization_with_impairment": (
+            (IFRS_CASH_DA_AND_IMPAIRMENT, "Cash-flow adjustment including impairment"),
+            ("-" + HSBC_PPE_DA[0], HSBC_PPE_DA[1]),
+        ),
+    },
     ADOBE: {
         "da": (("us-gaap:OtherDepreciationAndAmortization", "Property and equipment note · Depreciation and amortization"),
                (US_AMORTIZATION, "Goodwill and other intangibles note · Amortization of other intangibles")),
@@ -665,6 +679,7 @@ NOTES = {
 }
 
 CHECKS = {
+    HSBC: ("da_with_impairment", "-ppe_da_with_impairment_and_rou", "-amortization_with_impairment"),
     BMO: ("da", "-da_ppe", "-depreciation_other_assets", "-amortization"),
     CIBC: ("da_with_impairment", "-ppe_da_with_impairment", "-amortization_with_impairment"),
     SCHWAB: ("da", "-da_excluding_acquired_intangibles", "-amortization"),
@@ -718,6 +733,7 @@ ASSET_FIELDS = {
           for field, (_, tag, label) in fields.items()},
 }
 GAPS = {
+    HSBC: "The filing splits the cash-flow adjustment into property and lease assets and intangibles. Both amounts include impairment.",
     CIBC: "Property and equipment and intangible asset note totals reconcile to the cash-flow adjustment. Both include impairment.",
     UBS: "The asset notes report depreciation, amortization and impairment separately. The note amounts do not fully reconcile to the cash-flow adjustment.",
     APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. Continuing asset-note amounts are required for the add-back.",
@@ -1027,6 +1043,7 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
 
 
 DA_SCOPE_BOUNDS = {
+    HSBC: ("ppe_da_with_impairment_and_rou", "da_with_impairment"),
     ADOBE: ("da", "da_with_accretion"),
     APPLOVIN: ("da", "da_with_writeoffs"),
     AMGEN: ("da_ppe", "da_ppe_and_rou"),

@@ -17,6 +17,8 @@ COMBINED = "ifrs-full:PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherTh
 TURNAROUND = "us-gaap:PaymentsForCapitalImprovements"
 CAPEX_TAG = "derived:CashCapitalInvestment"
 NET_PURCHASES = "capex_net_of_disposals"
+NET_INTANGIBLES = "capex_net_intangibles"
+NET_FIELDS = {NET_PURCHASES, NET_INTANGIBLES}
 DISPOSAL_PROCEEDS = "capex_disposal_proceeds"
 AXP = (4962, "0000004962-26-000080")
 AXP_NET_LABEL = "Purchase of premises and equipment, net of sales"
@@ -25,13 +27,14 @@ BMO = (927971, "0001193125-25-307982")
 CIBC = (1045520, "0001193125-25-307488")
 TD = (947263, "0001562762-25-000289")
 UBS = (1610520, "0001610520-26-000023")
+HSBC = (1089113, "0001089113-26-000010")
 MS = (895421, "0000895421-26-000086")
 RY = (1000275, "0001193125-25-305927")
 BNS = (9631, "0001193125-25-304643")
 PLD = (1045609, "0001193125-26-051453")
 WELL = (766704, "0000766704-26-000010")
 SMFG = (1022837, "0001193125-26-283871")
-NET_ONLY = {BMO, CIBC, TD, RY, BNS, MS}
+NET_ONLY = {BMO, CIBC, TD, RY, BNS, MS, HSBC}
 BNS_TITLE = "Consolidated Financial Statements / Consolidated Statement of Cash Flows"
 BNS_NET_LINE = "Property and equipment, net of disposals"
 BNS_NET_TAG = "disclosed:NetCashPurchasesOfPropertyAndEquipment"
@@ -43,7 +46,7 @@ APP_INTANGIBLE_FIELDS = {
 APP_INVESTMENT_GAP = ("Cash investment includes the discontinued Apps business. The 10-K separates intangible purchases "
                       "by operation and reports PP&E cash purchases on a consolidated basis.")
 ADDITIONAL_FIELDS = {"capex_mixed_outflow", "capex_financing_payment", "capex_reported_total",
-                     NET_PURCHASES, DISPOSAL_PROCEEDS, "capex_property_acquisitions",
+                     *NET_FIELDS, DISPOSAL_PROCEEDS, "capex_property_acquisitions",
                      "capex_capitalized_interest", *APP_INTANGIBLE_FIELDS}
 FINANCING_TAGS = {
     "arm:RepaymentsOfIntangibleAssetObligation",
@@ -92,6 +95,7 @@ SECTION_PROFILES = {
     CIBC: ("Consolidated statement of cash flows", "R9.htm", 1_000_000, ()),
     TD: ("Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, ()),
     RY: ("Consolidated Statements of Cash Flows", "R6.htm", 1_000_000, ()),
+    HSBC: ("Consolidated statement of cash flows", "R9.htm", 1_000_000, ()),
     SMFG: ("Consolidated Statements of Cash Flows", "R6.htm", 1_000_000, (
         (IFRS_PPE, "Purchases of property, plant and equipment"),
         (IFRS_INTANGIBLES, "Purchases of intangible assets"),
@@ -268,6 +272,10 @@ SUPPLEMENTARY_CASH_FLOWS = {
                            "Net sale (purchase) of property, equipment, software and other intangible assets")},
     TD: {NET_PURCHASES: ("td:NetPurchasesOfLandBuildingsEquipmentAndOtherDepreciableAssets",
                          "Net purchases of land, buildings, equipment, other depreciable assets, and other intangibles")},
+    HSBC: {
+        NET_PURCHASES: (IFRS_PPE, "Net cash flows from the purchase and sale of property, plant and equipment"),
+        NET_INTANGIBLES: (IFRS_INTANGIBLES, "Net investment in intangible assets"),
+    },
     RY: {NET_PURCHASES: ("ry:PurchaseSaleOfPremisesAndEquipmentIntangibleAssetsOtherThanGoodwillAndOtherNoncurrentAssets",
                          "Net acquisitions of premises and equipment and other intangibles")},
     SMFG: {DISPOSAL_PROCEEDS: ("ifrs-full:ProceedsFromSalesOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
@@ -475,7 +483,7 @@ def rendered_components(cache, obj, key, statement, report, component):
         if direct is not None and abs(direct) != abs(value):
             raise ValueError(f"Cash-flow table and SEC Company Facts disagree for {label}")
         return component(tag, value, title + " · " + scope + label, receipt,
-                         signed=field == NET_PURCHASES, **evidence)
+                         signed=field in NET_FIELDS, **evidence)
 
     extras = SUPPLEMENTARY_CASH_FLOWS.get(key, {})
     investing, financing = consolidated, None

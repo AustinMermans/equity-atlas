@@ -12,7 +12,7 @@ from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG,
 from equity_atlas.balance_sheet import EQUITY_TAG as BALANCE_EQUITY_TAG, TAG as BALANCE_LIABILITIES_TAG, balance_facts
 from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
-                                reports_only_net_purchases, required_additional_fields, valid_capex_components)
+                                NET_FIELDS, reports_only_net_purchases, required_additional_fields, valid_capex_components)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
@@ -259,13 +259,13 @@ def verify_period(period, row):
         if fact["tag"] == CAPEX_TAG or key in CAPEX_ADDITIONAL_FIELDS:
             report = annual_report
             components = fact.get("components", []) if key == "capex" else [fact]
-            signed_net = key == NET_PURCHASES or (key == "capex" and selected_cik == AXP[0])
+            signed_net = key in NET_FIELDS or (key == "capex" and selected_cik == AXP[0])
             official = bool(
                 report and period["period_kind"] == "annual" and
                 valid_capex_components(components, selected_cik, report, key) and
                 period["filing"] == report["accession"] and period["end"] == report["end"] and
                 fact["value"] == sum(p["value"] for p in components) and
-                (key == NET_PURCHASES or fact["value"] >= 0) and
+                (key in NET_FIELDS or fact["value"] >= 0) and
                 fact["source"] == components[0]["source"] and fact["sha256"] == components[0]["sha256"] and
                 all(p["url"] == report["url"] and p["accession"] == report["accession"] and
                     p["filed"] == report["filed"] and p["form"] == report["form"] and
@@ -299,9 +299,13 @@ def verify_period(period, row):
                             all(k in period["facts"] and period["facts"][k]["value"] >= 0 for k in WORKBOOK_CAPEX_COMPONENTS) and
                             fact["value"] == sum(period["facts"][k]["value"] for k in WORKBOOK_CAPEX_COMPONENTS))
         if fact["tag"] == WORKBOOK_DA_TAG:
-            official = bool(official and workbook and selected_cik == 1046179 and key == "da" and
-                            fact.get("components") == list(DA_COMPONENTS) and all(k in period["facts"] for k in DA_COMPONENTS) and
-                            fact["value"] == sum(period["facts"][k]["value"] for k in DA_COMPONENTS))
+            parts = DA_COMPONENTS.get(selected_cik, ())
+            official = bool(official and workbook and parts and key == "da" and
+                            fact.get("components") == list(parts) and
+                            (fact["unit"], fact["start"]) == (period["currency"], period["start"]) and
+                            all(k in period["facts"] and period["facts"][k]["value"] >= 0 and
+                                all(period["facts"][k][attr] == fact[attr] for attr in ("unit", "start", "source", "sha256"))
+                                for k in parts) and fact["value"] == sum(period["facts"][k]["value"] for k in parts))
         if fact["tag"] in {EXHIBIT_TAG, CLIENT_FUNDS_EBIT_TAG}:
             official = disclosed.get(key) == fact
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
@@ -420,9 +424,9 @@ for row in rows:
                         not depreciation_reconciles(depreciation_rule_key(cik, report), facts)):
                     raise SystemExit(f"Refusing to lose reconciled depreciation and amortization for {row['symbol']}")
                 depreciation_profiles += 1
-            if cik == 1046179 and period.get("route") == WORKBOOK_ROUTE:
+            if cik in DA_COMPONENTS and period.get("route") == WORKBOOK_ROUTE:
                 if facts.get("da", {}).get("tag") != WORKBOOK_DA_TAG:
-                    raise SystemExit("Missing TSMC workbook depreciation and amortization total")
+                    raise SystemExit(f"Missing {row['symbol']} workbook depreciation and amortization total")
                 depreciation_profiles += 1
             expected_gap = depreciation_gap(cik, report) if report and "da" not in facts else None
             if period.get("depreciation_gap") != expected_gap:

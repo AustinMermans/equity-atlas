@@ -27,6 +27,9 @@ const fieldNames={
  ebit_adjusted:'Adjusted operating profit (non-GAAP)',
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
  capex_net_of_disposals:'Cash capital purchases net of disposals',
+ capex_net_intangibles:'Net cash investment in intangible assets',
+ ppe_da_with_impairment_and_rou:'Property and right-of-use depreciation and impairment',
+ amortization_deferred_customer_acquisition:'Amortization of deferred customer acquisition costs and fees',
  capex_disposal_proceeds:'Cash proceeds from disposals of productive assets',
  capex_property_acquisitions:'Cash paid for real-estate acquisitions',
  capex_capitalized_interest:'Cash interest capitalized in development',
@@ -177,7 +180,7 @@ function render() {
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
  const capexDetail=v=>{
-   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment,st?.facts?.capex_net_of_disposals,st?.facts?.capex_disposal_proceeds,st?.facts?.capex_property_acquisitions,st?.facts?.capex_capitalized_interest].includes(v)) return '';
+   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment,st?.facts?.capex_net_of_disposals,st?.facts?.capex_net_intangibles,st?.facts?.capex_disposal_proceeds,st?.facts?.capex_property_acquisitions,st?.facts?.capex_capitalized_interest].includes(v)) return '';
    const components=v.components||[v];
    return '<details><summary>Filed cash investment lines</summary><ul>'+components.map(part=>{
      const source=part.table_url||part.source;
