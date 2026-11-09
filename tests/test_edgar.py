@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from equity_atlas.capex import cash_activity, enrich_capex, valid_capex_components
-from equity_atlas.cash_balance import BALANCE_CASH, CURRENT_RESTRICTED, TOTAL, cash_facts, enrich_cash
+from equity_atlas.cash_balance import BALANCE_CASH, CURRENT_RESTRICTED, TOTAL, UNALLOCATED, cash_facts, enrich_cash
 from equity_atlas.catalog import cik_on
 from equity_atlas.depreciation import enrich_depreciation
 from equity_atlas.fetch import Cache, SEC
@@ -55,10 +55,14 @@ class EdgarTests(unittest.TestCase):
             cash_facts(cik, report, result, evidence)
 
         concepts["RestrictedCashCurrent"]["units"]["USD"][0]["val"] = 301
-        self.assertEqual(enrich_cash(None, obj, meta, cik, report, period), period)
+        conflicting = enrich_cash(None, obj, meta, cik, report, period)["facts"]
+        self.assertEqual(conflicting[UNALLOCATED]["value"], 3296)
+        self.assertNotIn("restricted_cash", conflicting)
         concepts["RestrictedCashCurrent"]["units"]["USD"][0]["val"] = 300
         concepts["RestrictedCashNoncurrent"]["units"]["USD"][0]["accn"] = "0001018724-25-000001"
-        self.assertEqual(enrich_cash(None, obj, meta, cik, report, period), period)
+        wrong_accession = enrich_cash(None, obj, meta, cik, report, period)["facts"]
+        self.assertEqual(wrong_accession[UNALLOCATED]["value"], 3296)
+        self.assertNotIn("restricted_cash", wrong_accession)
 
     def test_sec_cash_flow_fallback_uses_current_year_and_separates_financing_first(self):
         cfo = "ifrs-full:CashFlowsFromUsedInOperatingActivities"

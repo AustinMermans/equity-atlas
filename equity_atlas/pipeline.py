@@ -19,7 +19,7 @@ from .depreciation import (
 )
 from .parent_equity import enrich_parent_equity, supported as parent_equity_supported
 from .operating import enrich_operating, gap_reason, profile_for as operating_profile, scoped_pretax_facts
-from .cash_balance import cash_gap, cash_requires_scope_review, enrich_cash
+from .cash_balance import UNALLOCATED as CASH_FLOW_UNALLOCATED, cash_gap, cash_requires_scope_review, enrich_cash
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -444,7 +444,10 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
         "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
-        "annual_cash_evidence":sum(bool((r["statement"] or {}).get("annual_cash_balance")) for r in sec_rows),
+        "annual_cash_evidence":sum(bool((r["statement"] or {}).get("annual_cash_balance")) and
+                                   CASH_FLOW_UNALLOCATED not in r["statement"]["facts"] for r in sec_rows),
+        "annual_cash_unallocated":sum(CASH_FLOW_UNALLOCATED in (r["statement"] or {}).get("facts", {})
+                                      for r in sec_rows),
         "annual_cash_available":sum("cash" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_cash_scoped_gaps":sum(bool((r["statement"] or {}).get("cash_gap")) for r in sec_rows),
         "annual_parent_equity_available":sum("book" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),

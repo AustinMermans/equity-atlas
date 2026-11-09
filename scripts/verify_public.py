@@ -14,7 +14,8 @@ from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, AP
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 NET_FIELDS, reports_only_net_purchases, required_additional_fields, valid_capex_components)
 from equity_atlas.cash_balance import (BROAD as CASH_BROAD, GAPS as CASH_GAPS, PROFILED as CASH_PROFILED,
-                                        REVIEW_EXISTING as CASH_REVIEW_EXISTING, TAG as CASH_TAG, cash_facts, cash_gap,
+                                        REVIEW_EXISTING as CASH_REVIEW_EXISTING, TAG as CASH_TAG, UNALLOCATED as CASH_FLOW_UNALLOCATED,
+                                        cash_facts, cash_gap,
                                         rule_key as cash_rule_key)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
@@ -510,7 +511,7 @@ if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["a
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
 if "annual_cash_available" in snap["stats"]:
-    cash_available = cash_scoped = cash_evidence_count = 0
+    cash_available = cash_scoped = cash_evidence_count = cash_unallocated_count = 0
     for row in rows:
         if not row["id"].startswith("sec:"):
             continue
@@ -528,12 +529,15 @@ if "annual_cash_available" in snap["stats"]:
                 ("cash" not in facts and (not expected_gap or CASH_BROAD not in facts))):
             raise SystemExit(f"Missing or unverified cash scope for {row['symbol']}")
         cash_available += "cash" in facts
-        cash_evidence_count += bool(period.get("annual_cash_balance"))
+        cash_unallocated_count += CASH_FLOW_UNALLOCATED in facts
+        cash_evidence_count += bool(period.get("annual_cash_balance")) and CASH_FLOW_UNALLOCATED not in facts
         cash_scoped += bool(expected_gap)
     if (cash_available, cash_scoped) != (snap["stats"]["annual_cash_available"], snap["stats"]["annual_cash_scoped_gaps"]):
         raise SystemExit("Annual cash coverage does not match published facts")
     if "annual_cash_evidence" in snap["stats"] and cash_evidence_count != snap["stats"]["annual_cash_evidence"]:
         raise SystemExit("Annual cash evidence coverage does not match published facts")
+    if "annual_cash_unallocated" in snap["stats"] and cash_unallocated_count != snap["stats"]["annual_cash_unallocated"]:
+        raise SystemExit("Annual unallocated cash difference coverage does not match published facts")
 if "annual_parent_equity_available" in snap["stats"] and (
         parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
     raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")

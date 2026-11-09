@@ -436,6 +436,21 @@ if rows["TD"]["statement"]["facts"]["preferred_and_other_equity"]["value"] != 11
 checked += 1
 # Annual cash scopes independently reconciled to the selected filings.
 CASH_BALANCES = {
+    "ANET": ("USD", {"cash": 1963.9, "cash_including_restricted": 1965.3, "restricted_cash": 1.4}),
+    "BABA": ("CNY", {"cash": 131530, "cash_including_restricted": 173568, "restricted_cash_and_escrow": 42038,
+                     "escrow_buyer_protection": 35965, "restricted_cash_and_escrow_other": 6073}),
+    "BX": ("USD", {"cash": 2631.241, "cash_including_restricted": 2854.682, "cash_held_by_funds": 223.441}),
+    "DIS": ("USD", {"cash": 5695, "cash_including_restricted": 5799, "restricted_cash_noncurrent": 104}),
+    "MA": ("USD", {"cash": 10566, "cash_including_restricted": 13248, "restricted_cash_current": 561,
+                   "cash_held_for_customers": 2121}),
+    "NFLX": ("USD", {"cash": 9033.681, "cash_including_restricted": 9039.194, "restricted_cash": 5.513,
+                     "restricted_cash_current": 5.369, "restricted_cash_noncurrent": 0.144}),
+    "PANW": ("USD", {"cash": 2514, "cash_including_restricted": 2523, "restricted_cash": 9,
+                     "restricted_cash_current": 5, "restricted_cash_noncurrent": 4}),
+    "PLTR": ("USD", {"cash": 1423.796, "cash_including_restricted": 1451.425, "restricted_cash": 27.629,
+                     "restricted_cash_current": 2.518, "restricted_cash_noncurrent": 25.111}),
+    "VLO": ("USD", {"cash": 4688, "cash_including_restricted": 4865, "cash_flow_scope_difference": 177}),
+    "WMT": ("USD", {"cash": 10727, "cash_including_restricted": 11321, "cash_flow_scope_difference": 594}),
     "ADP": ("USD", {"cash": 4230.1, "cash_including_restricted": 10625.2, "restricted_cash": 6395.1}),
     "AMZN": ("USD", {"cash": 86810, "cash_including_restricted": 90106, "restricted_cash": 3296,
                       "restricted_cash_current": 300, "restricted_cash_noncurrent": 2996}),

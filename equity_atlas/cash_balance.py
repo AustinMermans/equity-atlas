@@ -1,5 +1,6 @@
 """Read annual cash balances with the scope stated in the selected filing."""
 
+from datetime import date
 import re
 
 from .balance_sheet import ASSETS, TITLES
@@ -12,6 +13,7 @@ TAG = "derived:FiledCashBalance"
 TOTAL = "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
 RESTRICTED = "us-gaap:RestrictedCashAndCashEquivalents"
 BROAD = "cash_including_restricted"
+UNALLOCATED = "cash_flow_scope_difference"
 RESTRICTED_CASH = "restricted_cash"
 CURRENT_CASH = "restricted_cash_current"
 NONCURRENT_CASH = "restricted_cash_noncurrent"
@@ -52,7 +54,31 @@ CME = (1156375, "0001156375-26-000009")
 ICE = (1571949, "0001571949-26-000004")
 IBKR = (1381197, "0001381197-26-000062")
 ADP = (8670, "0000008670-26-000030")
-CLIENT_CASH_FLOW = {
+MA = (1141391, "0001141391-26-000013")
+DIS = (1744489, "0001744489-25-000155")
+BABA = (1577552, "0001193125-26-231755")
+BX = (1393818, "0001193125-26-082531")
+PANW = (1327567, "0001327567-26-000023")
+PLTR = (1321655, "0001321655-26-000011")
+ANET = (1596532, "0001596532-26-000013")
+NFLX = (1065280, "0001065280-26-000034")
+CASH_FLOW_NOTES = {
+    # Query, title or title suffix, SEC rendered filename, currency, date heading, and scale.
+    BABA: ("Restricted cash and escrow receivables", "Restricted cash and escrow receivables (Details)",
+           "R92.htm", "CNY", "{end:%b}. {end.day}, {end.year} CNY (¥)", 1_000_000),
+    BX: ("Cash Held by Blackstone Funds and Other", "Consolidated Statements of Cash Flows (Parenthetical)",
+         "R9.htm", "USD", "{end:%b}. {end.day}, {end.year}", 1_000),
+    PANW: ("restricted cash", "CONSOLIDATED STATEMENTS OF CASH FLOWS",
+           "R8.htm", "USD", "12 Months Ended {end:%b}. {end.day}, {end.year}", 1_000_000),
+    PLTR: ("Restricted cash included in prepaid expenses and other current assets",
+           "that sum to the total of the amounts shown in the consolidated statements of cash flows (in thousands):",
+           None, "USD", "As of {end:%B} {end.day}, {end.year}", 1_000),
+    NFLX: ("restricted cash", "Cash, Cash Equivalents, Restricted Cash, and Short-term Investments (Details)",
+           "R44.htm", "USD", "{end:%b}. {end.day}, {end.year}", 1_000),
+    ANET: ("restricted cash", "their levels within the fair value hierarchy (in millions):",
+           None, "USD", "{end:%B} {end.day}, {end.year} Total", 1_000_000),
+}
+CASH_FLOW_TAGS = {
     ADP: {RESTRICTED_CASH: (RESTRICTED, "Restricted cash and equivalents included in funds held for clients")},
     CME: {CURRENT_CASH: (CURRENT_RESTRICTED,
                             "Short-term restricted cash within other current assets"),
@@ -62,8 +88,11 @@ CLIENT_CASH_FLOW = {
           NONCURRENT_CASH: ("us-gaap:RestrictedCashAndCashEquivalentsNoncurrent", "Long-term restricted cash and equivalents"),
           "cash_held_for_customers": ("us-gaap:DepositsAssetsCurrent", "Cash margin deposits and guaranty funds")},
     IBKR: {RESTRICTED_CASH: ("us-gaap:CashReserveDepositRequiredAndMade", "Cash segregated for regulatory purposes")},
+    MA: {CURRENT_CASH: (CURRENT_RESTRICTED, "Restricted cash and restricted cash equivalents"),
+         "cash_held_for_customers": ("us-gaap:DepositsAssetsCurrent", "Restricted security deposits held for customers")},
+    DIS: {NONCURRENT_CASH: ("us-gaap:RestrictedCashAndInvestmentsNoncurrent", "Restricted cash included in other assets")},
 }
-REVIEW_EXISTING = HOLD_UNVERIFIED | {AIRBNB, VISA} | CLIENT_CASH_FLOW.keys()
+REVIEW_EXISTING = HOLD_UNVERIFIED | {AIRBNB, VISA} | CASH_FLOW_TAGS.keys() | CASH_FLOW_NOTES.keys()
 
 # Match the printed cash captions within the consolidated asset section.
 FACE = {
@@ -100,8 +129,12 @@ FACE = {
 # A subtotal published in billions carries that precision through the split.
 RESTRICTED_ROUNDING = {BAC: 100_000_000, JPM: 100_000_000}
 TAGGED = {
-    **{key: {BROAD: (TOTAL, "Cash-flow total including segregated or client cash"), **components}
-       for key, components in CLIENT_CASH_FLOW.items()},
+    **{key: {BROAD: (TOTAL, "Cash-flow total including segregated or client cash" if key != DIS else CASH_FLOW_TOTAL),
+             **components} for key, components in CASH_FLOW_TAGS.items()},
+    **{key: {BROAD: (TOTAL, CASH_FLOW_TOTAL)} for key in CASH_FLOW_NOTES},
+    BABA: {BROAD: (TOTAL, "Cash-flow total including restricted cash and escrow receivables")},
+    BX: {BROAD: (TOTAL, "Cash-flow total including cash held by Blackstone funds")},
+
     AIRBNB: {BROAD: (TOTAL, "Note 3 · Cash-flow total including customer balances and restricted cash"),
              "restricted_cash": (RESTRICTED, "Note 3 · Restricted cash in prepaids and other current assets")},
     GOLDMAN: {BROAD: (TOTAL, "Balance sheet · Cash and equivalents including segregated cash"),
@@ -143,7 +176,25 @@ VISA_NOTE_END = (
     "consolidated balance sheets that aggregate to the beginning and ending balances shown in the consolidated statements "
     "of cash flows as follows:"
 )
+RESTRICTED_IN_OTHER_ASSETS = {
+    CURRENT_CASH: ("disclosed:RestrictedCashCurrent", "Restricted cash included in prepaid expenses and other current assets"),
+    NONCURRENT_CASH: ("disclosed:RestrictedCashNoncurrent", "Restricted cash included in other assets"),
+}
+CASH_FLOW_COMPONENTS = {
+    BABA: {"restricted_cash_and_escrow": ("disclosed:RestrictedCashAndEscrowReceivables",
+                                          "Restricted cash and escrow receivables"),
+           "escrow_buyer_protection": ("disclosed:BuyerProtectionFundDeposits",
+                                        "Buyer protection fund deposits from merchants on the marketplaces"),
+           "restricted_cash_and_escrow_other": ("disclosed:OtherRestrictedCashAndEscrowReceivables", "Others")},
+    BX: {"cash_held_by_funds": ("disclosed:CashHeldByFunds", "Cash Held by Blackstone Funds and Other")},
+    ANET: {RESTRICTED_CASH: ("disclosed:RestrictedMoneyMarketFunds", "Money market funds - restricted cash")},
+    NFLX: {CURRENT_CASH: ("disclosed:RestrictedCashCurrent", "Other Current Assets"),
+           NONCURRENT_CASH: ("disclosed:RestrictedCashNoncurrent", "Non-current Assets")},
+    PLTR: RESTRICTED_IN_OTHER_ASSETS,
+    PANW: RESTRICTED_IN_OTHER_ASSETS,
+}
 NOTE_FIELDS = {
+    **CASH_FLOW_COMPONENTS,
     WFC: {
         "restricted_cash_reserves": ("disclosed:ForeignCentralBankReserveCash", "Reserve balance for non-U.S. central banks"),
         "cash_held_for_customers": ("disclosed:SegregatedBrokerageCash",
@@ -186,7 +237,11 @@ def goldman_pdf(report):
 def note_source(key, cik, report, part):
     if key == GOLDMAN:
         return part["source"] == goldman_pdf(report) and "table_url" not in part
-    if key == VISA:
+    if key in CASH_FLOW_NOTES:
+        filename = CASH_FLOW_NOTES[key][2]
+        if filename:
+            return valid_table_source(part, report, filename if key == (cik, report["accession"]) else None)
+    if key == VISA or key in CASH_FLOW_NOTES:
         return (part["source"] == ENDPOINT and part.get("table_url") == report["url"] and
                 bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
     filename = NOTE_REPORTS[key][1] if key == (cik, report["accession"]) else None
@@ -198,9 +253,9 @@ def cash_gap(cik, report, facts):
 
 
 def standard_fields(inputs):
-    """Require a reported subtotal or a current/noncurrent split with no overlap."""
+    """Recognize a cash-flow total and any nonoverlapping filed restriction fields."""
     restrictions = inputs.keys() - {BROAD}
-    if BROAD not in inputs or not restrictions or not (
+    if BROAD not in inputs or not (
         restrictions == {RESTRICTED_CASH} or restrictions <= {CURRENT_CASH, NONCURRENT_CASH}
     ):
         raise ValueError("Unsupported restricted cash component set")
@@ -219,26 +274,27 @@ def standard_lines(amount, cash):
     if type(total) is not int or total <= cash:
         return {}
 
+    broad = {BROAD: (TOTAL, total, CASH_FLOW_TOTAL)}
     reported = {}
     for field, aliases in STANDARD_RESTRICTIONS.items():
         tagged = [(tag, value) for tag in aliases if (value := amount(tag)) is not None]
         if any(type(value) is not int or value < 0 for _, value in tagged) or len({v for _, v in tagged}) > 1:
-            return {}
+            return broad
         if tagged:
             reported[field] = (*tagged[0], RESTRICTION_LABELS[field])
 
     delta = total - cash
     split = {field: reported[field] for field in (CURRENT_CASH, NONCURRENT_CASH) if field in reported}
     if RESTRICTED_CASH in reported and reported[RESTRICTED_CASH][1] != delta:
-        return {}
+        return broad
     split_total = sum(part[1] for part in split.values())
     if split_total == delta:
         components = split
     elif RESTRICTED_CASH in reported and split_total < delta:
         components = {RESTRICTED_CASH: reported[RESTRICTED_CASH]}
     else:
-        return {}
-    return {BROAD: (TOTAL, total, CASH_FLOW_TOTAL), **components}
+        return broad
+    return {**broad, **components}
 
 
 def cash_facts(cik, report, period, evidence):
@@ -271,19 +327,38 @@ def cash_facts(cik, report, period, evidence):
                 or (field in tagged and (part["source"] != SEC.format(cik) or "table_url" in part))):
             raise ValueError(f"Unverified cash balance for {field}")
         result[field] = {**part, "tag": TAG, "locator": label, "components": [part]}
-    if standard or key in CLIENT_CASH_FLOW:
+    if key in CASH_FLOW_NOTES:
+        receipts = {tuple(inputs[field][k] for k in ("source", "sha256", "table_url", "table_sha256_16"))
+                    for field in note}
+        if len(receipts) != 1:
+            raise ValueError("Supplemental cash lines come from different tables")
+    if standard or key in CASH_FLOW_TAGS or key in CASH_FLOW_NOTES:
         operating = facts["cash"]
         combined = inputs[BROAD]
-        components = [part for field, part in inputs.items() if field != BROAD]
+        fields = inputs.keys() - {BROAD}
+        if key == BABA:
+            escrow = inputs["restricted_cash_and_escrow"]["value"]
+            if escrow != inputs["escrow_buyer_protection"]["value"] + inputs["restricted_cash_and_escrow_other"]["value"]:
+                raise ValueError("Alibaba buyer protection deposits and other escrow assets do not reconcile")
+            fields = {"restricted_cash_and_escrow"}
+        components = [inputs[field] for field in fields]
+        difference = combined["value"] - operating["value"]
         if (operating["tag"] != BALANCE_CASH or operating["source"] != SEC.format(cik)
                 or operating["sha256"] != combined["sha256"]
-                or any(part["sha256"] != combined["sha256"] for part in components)
+                or any(inputs[field]["sha256"] != combined["sha256"] for field in fields & tagged.keys())
                 or tuple(operating[k] for k in keys) != scope
                 or type(operating["value"]) is not int or operating["value"] < 0
-                or operating["value"] + sum(part["value"] for part in components) != combined["value"]):
+                or difference <= 0
+                or (components and sum(part["value"] for part in components) != difference)):
             raise ValueError("Company cash and the reported restrictions do not reconcile to the cash-flow total")
-        if RESTRICTED_CASH not in result:
-            split = [inputs[field] for field in (CURRENT_CASH, NONCURRENT_CASH) if field in inputs]
+        if not components:
+            result[UNALLOCATED] = {
+                **combined, "tag": TAG, "value": difference,
+                "locator": "Cash-flow total less balance-sheet cash. Components pending verification.",
+                "components": [combined, {**operating, "line": "Balance-sheet cash and equivalents", "sign": -1}],
+            }
+        split = [inputs[field] for field in (CURRENT_CASH, NONCURRENT_CASH) if field in inputs]
+        if split and RESTRICTED_CASH not in result:
             result[RESTRICTED_CASH] = {
                 **split[0], "tag": TAG, "value": sum(part["value"] for part in split), "components": split,
                 "locator": "Restricted cash and equivalents across balance-sheet maturities",
@@ -366,6 +441,66 @@ def cash_facts(cik, report, period, evidence):
             "components": [combined, {**deposits, "sign": -1}],
         }
     return result
+
+
+def supplemental_cash_rows(cache, cik, report, period, key, total):
+    query, title, filename, currency, heading, scale = CASH_FLOW_NOTES[key]
+    if period["currency"] != currency:
+        raise ValueError("Supplemental cash table has a different reporting currency")
+    tables, digests, receipt = filing_tables(cache, cik, report, query)
+    end = date.fromisoformat(report["end"])
+    column = heading.format(end=end)
+    if filename:
+        pinned = filename if key == (cik, report["accession"]) else None
+        units = ("¥ in Millions, $ in Millions" if currency == "CNY"
+                 else "USD ($) $ in Thousands" if scale == 1_000 else "USD ($) $ in Millions")
+        table, = (t for t in tables if t["source"] == "xbrl report" and t["title"] == title
+                  and t["units"] == units and table_belongs_to_filing(t["url"], report, pinned))
+    else:
+        table, = (t for t in tables if t["source"] == "document table" and t["url"] == report["url"]
+                  and t["title"].endswith(title) and column in t["columns"])
+    if table["columns"].count(column) != 1:
+        raise ValueError("Supplemental cash table does not match the selected fiscal period")
+    index = table["columns"].index(column)
+    rows = table["rows"]
+    if key == BABA:
+        aggregate, deposits, other = (label for _, label in NOTE_FIELDS[key].values())
+        # XBRL renders the subtotal and each dimensional member under the same line caption.
+        expected = [aggregate, aggregate, deposits, aggregate, aggregate, other, aggregate, aggregate]
+        if ([row[0] for row in rows] != expected or
+                any(any(value is not None for value in rows[i][1:]) for i in (0, 2, 3, 5, 6))):
+            raise ValueError("Alibaba escrow disclosure dimensions changed")
+        rows = [[label, *rows[i][1:]] for label, i in ((aggregate, 1), (deposits, 4), (other, 7))]
+
+    if key == NFLX:
+        # Only use the undimensioned asset allocations, before the security-class detail.
+        allocation = "Cash, cash equivalents, and short-term investments"
+        headings = ("Cash and cash equivalents", "Short-term investments", "Other Current Assets", "Non-current Assets")
+        allocated = {}
+        for label in headings:
+            i, = (i for i, row in enumerate(rows) if row[0] == label)
+            heading, values = rows[i:i+2]
+            if any(value is not None for value in heading[1:]) or values[0] != allocation:
+                raise ValueError("Netflix liquidity allocation table changed")
+            allocated[label] = values[1:]
+        rows = [[label, *values] for label, values in allocated.items()]
+
+    def row_amount(label):
+        value, = (row[index] for row in rows if row[0] == label and type(row[index]) in (int, float))
+        return scaled(value, scale)
+
+    if key == NFLX:
+        if row_amount("Cash and cash equivalents") != period["facts"]["cash"]["value"]:
+            raise ValueError("Netflix note disagrees with SEC balance-sheet cash")
+    if key in {BX, PANW, PLTR}:
+        cash_label = "Cash and Cash Equivalents" if key == BX else "Cash and cash equivalents"
+        total_label = ("Cash and Cash Equivalents and Cash Held by Blackstone Funds and Other" if key == BX
+                       else "Total cash, cash equivalents, and restricted cash")
+        if (row_amount(cash_label), row_amount(total_label)) != (period["facts"]["cash"]["value"], total):
+            raise ValueError("Cash table anchors disagree with SEC Company Facts")
+    return {field: row_amount(label) for field, (_, label) in NOTE_FIELDS[key].items()}, receipt, {
+        "table_url": table["url"], "table_sha256_16": digests.get(table["url"], ""),
+    }
 
 
 def enrich_cash(cache, obj, meta, cik, report, period):
@@ -455,6 +590,10 @@ def enrich_cash(cache, obj, meta, cik, report, period):
                  and re.search(rf"^\$ in millions +{year} +{year-1}\b", page, re.M))
         match, = re.findall(r"^Cash and Cash Equivalents +\$([\d,]+) +\$[\d,]+\b", risk, re.M)
         parts["cash"] = part(*GOLDMAN_UNRESTRICTED, scaled(match.replace(",", ""), 1_000_000), receipt)
+    if key in CASH_FLOW_NOTES:
+        amounts, receipt, table_source = supplemental_cash_rows(cache, cik, report, period, key, parts[BROAD]["value"])
+        for field, (tag, label) in NOTE_FIELDS[key].items():
+            parts[field] = part(tag, label, amounts[field], receipt, **table_source)
     if key in {AIRBNB, VISA, WFC}:
         query = {AIRBNB: AIRBNB_QUERY, VISA: VISA_QUERY, WFC: WFC_QUERY}[key]
         tables, digests, receipt = filing_tables(cache, cik, report, query)
