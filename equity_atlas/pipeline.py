@@ -17,6 +17,7 @@ from .depreciation import (
     TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
     rule_key as depreciation_rule_key, separate_partial_da,
 )
+from .parent_equity import enrich_parent_equity, supported as parent_equity_supported
 from .operating import enrich_operating, gap_reason, profile_for as operating_profile, scoped_pretax_facts
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
@@ -221,6 +222,11 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1] = enrich_balance(cache, obj, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual balance sheet for {selected['end']}: {exc}")
+                if selected_filing and parent_equity_supported(cik, selected_filing, history[-1]):
+                    try:
+                        history[-1] = enrich_parent_equity(cache, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual parent equity for {selected['end']}: {exc}")
                 if selected_filing and capex_supported(cik, selected_filing):
                     try:
                         history[-1]=enrich_capex(cache,obj,meta,cik,selected_filing,history[-1])
@@ -233,7 +239,7 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1]=enrich_operating(cache,cik,selected_filing,history[-1])
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual income statement for {selected['end']}: {exc}")
-                        if income_rule.revised_sales:
+                        if income_rule.sales_basis:
                             history[-1]=hold_unreconciled(history[-1],"sales")
                 if selected_filing and depreciation_fields(cik, selected_filing):
                     try:
@@ -427,6 +433,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
         "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
+        "annual_parent_equity_available":sum("book" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
+        "annual_revenue_available":sum("sales" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_liabilities_available":sum("liabilities" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_liabilities_recovered":sum((r["statement"] or {}).get("facts", {}).get("liabilities", {}).get("tag")
                                            == BALANCE_LIABILITIES_TAG for r in sec_rows),

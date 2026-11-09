@@ -30,9 +30,10 @@ from equity_atlas.sec_workbook import (CAPEX_COMPONENTS as WORKBOOK_CAPEX_COMPON
                                        DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE,
                                        SOURCE as WORKBOOK_SOURCE, workbook_url)
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
-from equity_atlas.operating import (INCOME_SUBTOTAL_TAG, OPERATING_TAG, PRETAX_BRIDGE_TAG, SALES_BASIS,
-                                    PROFILES as INCOME_PROFILES, gap_reason, income_tag,
+from equity_atlas.operating import (INCOME_SUBTOTAL_TAG, OPERATING_TAG, PRETAX_BRIDGE_TAG,
+                                    PROFILES as INCOME_PROFILES, bank_income_reconciles, gap_reason, income_tag,
                                     profile_for as income_profile_for, scoped_income_reconciles, scoped_pretax_facts)
+from equity_atlas.parent_equity import TAG as PARENT_EQUITY_TAG, equity_facts
 from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT, table_belongs_to_filing
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_DAILY_QUOTES, TWSE_ISSUERS, TWSE_ISSUERS_CSV
 
@@ -50,6 +51,8 @@ interim_expected=0
 quarters=0
 capex_profiles=0
 liabilities_available=0
+revenue_available=0
+parent_equity_available=0
 liabilities_recovered=0
 note_profiles=0
 business_profiles=0
@@ -175,6 +178,14 @@ def verify_period(period, row):
     annual_report = period.get("report") if period is row["statement"] else None
     selected_cik = annual_cik(row, annual_report) if annual_report else None
     income_profile = income_profile_for(selected_cik, annual_report) if annual_report else None
+    parent_equity = {}
+    if parent_evidence := period.get("annual_parent_equity"):
+        try:
+            parent_equity = equity_facts(selected_cik, annual_report, period, parent_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit("Unverified annual parent-equity reconciliation") from exc
+        if any(period["facts"].get(key) != value for key, value in parent_equity.items()):
+            raise SystemExit("Parent equity differs from its filed closing equity columns")
     balance_evidence = period.get("annual_balance_sheet")
     balance = {}
     if balance_evidence:
@@ -272,6 +283,8 @@ def verify_period(period, row):
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == BUSINESS_TAG:
             official = scoped.get(key) == fact
+        if fact["tag"] == PARENT_EQUITY_TAG:
+            official = parent_equity.get(key) == fact
         if fact["tag"] in {BALANCE_LIABILITIES_TAG, BALANCE_EQUITY_TAG}:
             official = balance.get(key) == fact
         if fact["tag"] == PRETAX_BRIDGE_TAG:
@@ -380,10 +393,11 @@ for row in rows:
             profile = income_profile_for(cik, report) if report else None
             pinned = bool(report and (cik, report["accession"]) in INCOME_PROFILES)
             if pinned or period.get("income_profiled"):
-                expected_basis = SALES_BASIS if profile and profile.revised_sales else None
+                expected_basis = profile.sales_basis if profile else None
                 if (not profile or not period.get("income_profiled") or period.get("sales_basis") != expected_basis or
                         any(period["facts"].get(key, {}).get("source") != RENDERED_ENDPOINT
-                            for key in profile.fields) or not scoped_income_reconciles(cik, report, period["facts"])):
+                            for key in profile.fields) or not scoped_income_reconciles(cik, report, period["facts"])
+                        or not bank_income_reconciles(profile, period)):
                     raise SystemExit(f"Refusing to lose reconciled income statement fields for {row['symbol']}")
                 income_profiles += 1
             elif period.get("income_profiled") or period.get("sales_basis"):
@@ -415,6 +429,8 @@ for row in rows:
                 raise SystemExit(f"Unverified annual depreciation and amortization gap for {row['symbol']}")
             depreciation_gaps += bool(expected_gap)
         if row["id"].startswith("sec:"):
+            parent_equity_available += "book" in row["statement"]["facts"]
+            revenue_available += "sales" in row["statement"]["facts"]
             liabilities = row["statement"]["facts"].get("liabilities")
             liabilities_available += bool(liabilities)
             liabilities_recovered += bool(liabilities and liabilities["tag"] == BALANCE_LIABILITIES_TAG)
@@ -476,6 +492,12 @@ if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["a
     raise SystemExit("Annual filing note coverage does not match published facts")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
+if "annual_parent_equity_available" in snap["stats"] and (
+        parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
+    raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")
+if "annual_revenue_available" in snap["stats"] and (
+        revenue_available != sec_count or revenue_available != snap["stats"]["annual_revenue_available"]):
+    raise SystemExit(f"Annual revenue coverage incomplete: {revenue_available}/{sec_count}")
 if "annual_liabilities_available" in snap["stats"] and (
         liabilities_available != sec_count or liabilities_available != snap["stats"]["annual_liabilities_available"]
         or liabilities_recovered != snap["stats"].get("annual_liabilities_recovered")):

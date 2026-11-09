@@ -53,6 +53,9 @@ const fieldNames={
  corporate_interest_income_other:'Corporate interest income outside the client-funds strategy',
  corporate_interest_income_filed:'Total interest income on corporate funds',
  nonoperating_income_net:'Filed other income, net',
+ preferred_and_other_equity:'Preferred and other equity instruments, net',
+ net_fee_income:'Net fee and commission income',
+ credit_impairment_expense:'Credit impairment expense',
  mining_profit_before_financial_and_other:'Mining profit before finance, derivatives, FX and other items',
  operating_profit_before_other_items:'Operating subtotal before other income and expenses',
  derivatives_net_gain_filed:'Gain or loss on derivative financial instruments',
@@ -185,6 +188,7 @@ function detail(r) {
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
      'derived:FiledBalanceSheetLiabilities':'Filed balance-sheet liability lines',
+     'derived:FiledParentEquity':'Filed closing equity columns',
      'derived:ReconciledPretaxScope':'Filed pretax income and note adjustments',
      'disclosed:ReconciledAnnualNoteLine':'Filed note line',
      'disclosed:ReconciledBusinessScopes':'Filed business-scope components',
@@ -199,7 +203,7 @@ function detail(r) {
        ' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">Source</a></li>';
    }).join('')+'</ul></details>';
  };
- const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':k==='da'&&period.facts.da_including_content?'D&A excluding content amortization':field(k))+'</td><td>'+(v.rounding_increment?'≈ ':'')+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':k==='sales'&&period.sales_basis==='bank_income_before_credit_impairment'?'Bank income before credit impairment':k==='da'&&period.facts.da_including_content?'D&A excluding content amortization':field(k))+'</td><td>'+(v.rounding_increment?'≈ ':'')+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
  const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
  const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
  const q=r.market;

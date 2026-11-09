@@ -381,6 +381,39 @@ if {part["member"]: part["value"] for part in marriott if "member" in part} != {
         "Liability for guest loyalty program": 4_495_000_000, "Deferred revenue": 1_200_000_000}:
     raise SystemExit("Marriott noncurrent contract-liability dimensions changed")
 checked += 2
+# Bank income before credit impairment, net fee income, and credit expense, in millions.
+BANK_INCOME = {
+    "HSBC": ("USD", (68274, 13343, 3850)),
+    "SAN": ("EUR", (58670, 12976, 12546)),
+    "SMFG": ("JPY", (4841783, 1517767, 392157)),
+    "UBS": ("USD", (49573, 27912, 524)),
+}
+for symbol, (currency, amounts) in BANK_INCOME.items():
+    statement = rows[symbol]["statement"]
+    expected = tuple((currency, amount * 1_000_000) for amount in amounts)
+    actual = tuple((statement["facts"][key]["unit"], statement["facts"][key]["value"])
+                   for key in ("sales", "net_fee_income", "credit_impairment_expense"))
+    if actual != expected or statement.get("sales_basis") != "bank_income_before_credit_impairment":
+        raise SystemExit(f"{symbol}: bank revenue or credit scope changed")
+    checked += len(amounts)
+
+# Closing parent and common equity, in each issuer's reporting currency.
+PARENT_EQUITY = {
+    "AEM": ("USD", 24742464000, 24742464000), "AVGO": ("USD", 81292000000, 81292000000),
+    "CNQ": ("CAD", 44366000000, 44366000000), "JNJ": ("USD", 81544000000, 81544000000),
+    "NVO": ("DKK", 194047000000, 194047000000), "QCOM": ("USD", 30401000000, 30401000000),
+    "SYK": ("USD", 22420000000, 22420000000), "TD": ("CAD", 127827000000, 116206000000),
+    "V": ("USD", 36111000000, 35604000000),
+}
+for symbol, (currency, parent, common) in PARENT_EQUITY.items():
+    facts = rows[symbol]["statement"]["facts"]
+    if ((facts["book"]["unit"], facts["book"]["value"]) != (currency, parent)
+            or (facts["common_book"]["unit"], facts["common_book"]["value"]) != (currency, common)):
+        raise SystemExit(f"{symbol}: parent or common equity changed")
+    checked += 2
+if rows["TD"]["statement"]["facts"]["preferred_and_other_equity"]["value"] != 11_621_000_000:
+    raise SystemExit("TD preferred shares and other equity instruments changed")
+checked += 1
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -396,5 +429,7 @@ for key, millions in {"ebit_adjusted": 9055, "sales_adjusted": 42322, "costs_adj
     checked += 1
 issuers.update(ANNUAL_NOTES)
 issuers.update(LIABILITY_BALANCES)
+issuers.update(BANK_INCOME)
+issuers.update(PARENT_EQUITY)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

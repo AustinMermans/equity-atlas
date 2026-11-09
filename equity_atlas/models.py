@@ -146,7 +146,7 @@ def common_earnings(v, tag):
         return v["net_parent"] - v["preferred_earnings_adjustment"]
     if tag in {"ifrs-full:ProfitLoss","us-gaap:ProfitLoss","issuer:consolidated:net"}:
         return None
-    if v.get("preferred",0)>0 and "AvailableToCommon" not in tag:
+    if v.get("preferred_and_other_equity", v.get("preferred",0))>0 and "AvailableToCommon" not in tag:
         return None
     return v.get("net")
 
@@ -158,6 +158,8 @@ def common_dividends(statement):
     minority=v.get("minority",v.get("total_equity",0)-v.get("book",0) if "total_equity" in v else 0)
     if minority>0:
         return None
+    if v.get("preferred_and_other_equity",0)>0:
+        return None  # A combined noncommon claim may also pay distributions outside preferred dividends.
     if v.get("preferred",0)>0:
         if {"div_total","div_preferred_paid"} <= v.keys() and v["div_total"] >= v["div_preferred_paid"]:
             return v["div_total"] - v["div_preferred_paid"]
@@ -182,7 +184,7 @@ def observed(case):
         minority=max(0,v["total_equity"]-v["book"]-hybrid)
     # Separately presented claims enter the enterprise-to-common bridge at carrying value.
     temporary=sum(v[k] for k in temporary_equity_fields(v))
-    claims=(minority or 0)+v.get("preferred",0)+hybrid+temporary
+    claims=(minority or 0)+v.get("preferred_and_other_equity", v.get("preferred",0)+hybrid)+temporary
     bridge=None
     if not case.get("ev_exclusion") and case["kind"] in CORE and debt is not None and debt>=0 and v.get("cash",-1)>=0:
         bridge=v["cash"]+v.get("st_investments",0)-debt-claims

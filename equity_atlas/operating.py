@@ -12,6 +12,7 @@ OPERATING_TAG = "derived:FiledOperatingProfit"
 INCOME_SUBTOTAL_TAG = "derived:FiledIncomeSubtotal"
 PRETAX_BRIDGE_TAG = "derived:ReconciledPretaxScope"
 SALES_BASIS = "operating_sales"
+BANK_SALES_BASIS = "bank_income_before_credit_impairment"
 
 @dataclass(frozen=True)
 class Profile:
@@ -22,7 +23,7 @@ class Profile:
     fields: dict
     checks: tuple = ()
     tolerance: int = 0
-    revised_sales: bool = False
+    sales_basis: str | None = None
     line_tags: tuple = ()
 
 
@@ -123,9 +124,68 @@ PFE_OTHER = "Other (income)/deductions--net"
 PFE_PRETAX = "Income from continuing operations before provision/(benefit) for taxes on income"
 
 
+HSBC_CREDIT = "Change in expected credit losses and other credit impairment charges"
+SAN_CREDIT = "Impairment or reversal of impairment at financial assets not measured at fair value through profit or loss and net gains and losses from changes"
+SMFG_CREDIT = "Impairment charges on financial assets"
+UBS_CREDIT = "Credit loss expense / (release)"
+
+
 # All checks are zero-sum on the filed presentation signs. Excluded lines
 # reconcile operating profit to pretax income, or net income where necessary.
 PROFILES = {
+    (1089113, "0001089113-26-000010"): Profile(
+        "Consolidated income statement", "R3.htm", 1_000_000,
+        {"pretax": "Profit before tax", "net_interest_income": "Net interest income"},
+        {"sales": ("Total operating income",), "net_fee_income": ("Net fee income",),
+         "credit_impairment_expense": ("-" + HSBC_CREDIT,)},
+        (("Total operating income", HSBC_CREDIT, "-Net operating income"),
+         ("Net operating income", "Total operating expenses", "-Operating profit"),
+         ("Operating profit", "Share of profit in associates and joint ventures", "Impairment of interest in associate",
+          "-Profit before tax")),
+        sales_basis=BANK_SALES_BASIS,
+        line_tags=(("Total operating income", "ifrs-full:RevenueAndOperatingIncome"),),
+    ),
+    (891478, "0000891478-26-000030"): Profile(
+        "Consolidated Income Statements", "R5.htm", 1_000_000,
+        {"pretax": "Operating profit/(loss) before tax", "net_interest_income": "Interest income/(charges)"},
+        {"sales": ("Total income",), "net_fee_income": ("Commission income", "Commission expense"),
+         "credit_impairment_expense": ("-" + SAN_CREDIT,)},
+        (("Total income", "Administrative expenses", "Depreciation and amortisation cost",
+          "Provisions or reversal of provisions, net", SAN_CREDIT,
+          "Impairment or reversal of impairment of investments in subsidiaries, joint ventures and associates, net",
+          "Impairment or reversal of impairment on non-financial assets, net",
+          "Gain or losses on non-financial assets and investments, net", "Negative goodwill recognized in results",
+          "Gains or losses on non-current assets held for sale not classified as discontinued operations",
+          "-Operating profit/(loss) before tax"),),
+        sales_basis=BANK_SALES_BASIS,
+        line_tags=(("Total income", "ifrs-full:GrossProfit"),),
+    ),
+    (1022837, "0001193125-26-283871"): Profile(
+        "Consolidated Income Statements", "R3.htm", 1_000_000,
+        {"pretax": "Profit before tax", "net_interest_income": "Net interest income"},
+        {"sales": ("Total operating income",), "net_fee_income": ("Net fee and commission income",),
+         "credit_impairment_expense": (SMFG_CREDIT,)},
+        (("Net interest income", "Net fee and commission income", "Net trading income (loss)",
+          "Net income from financial assets and liabilities at fair value through profit or loss", "Net investment income",
+          "Net gains (losses) arising from derecognition of financial assets at amortized cost", "Other income",
+          "-Total operating income"),
+         ("Total operating income", "-" + SMFG_CREDIT, "-Net operating income"),
+         ("Net operating income", "-Operating expenses", "Share of post-tax profit of associates and joint ventures",
+          "-Profit before tax")),
+        sales_basis=BANK_SALES_BASIS,
+        line_tags=(("Total operating income", "smfg:OperatingIncomeLossBeforeImpairmentCharges"),),
+    ),
+    (1610520, "0001610520-26-000023"): Profile(
+        "Consolidated Income Statement", "R2.htm", 1_000_000,
+        {"pretax": "Operating profit / (loss) before tax", "net_interest_income": "Net interest income"},
+        {"sales": ("Total revenues",), "net_fee_income": ("Net fee and commission income",),
+         "credit_impairment_expense": (UBS_CREDIT,)},
+        (("Net interest income", "Other net income from financial instruments measured at fair value through profit or loss",
+          "Net fee and commission income", "Other income", "-Total revenues"),
+         ("Total revenues", "-" + UBS_CREDIT, "-Operating expenses", "-Operating profit / (loss) before tax")),
+        tolerance=1_000_000, sales_basis=BANK_SALES_BASIS,
+        line_tags=(("Total revenues", "ifrs-full:RevenueAndOperatingIncome"),),
+    ),
     AEM: Profile(
         "CONSOLIDATED STATEMENTS OF INCOME", "R4.htm", 1_000,
         {"sales": AEM_SUBTOTAL[0], "pretax": AEM_PRETAX},
@@ -193,7 +253,7 @@ PROFILES = {
             (CVX_REVENUE, "Income (loss) from equity affiliates", "Other income (loss)", "-Total Revenues and Other Income"),
             CVX_OPERATING + ("Income (loss) from equity affiliates", "Other income (loss)", "-Interest and debt expense",
                              "-Other components of net periodic benefit costs", "-Income (Loss) Before Income Tax Expense"),
-        ), revised_sales=True,
+        ), sales_basis=SALES_BASIS,
     ),
     (1551182, "0001551182-26-000007"): Profile(
         "CONSOLIDATED STATEMENTS OF INCOME", "R3.htm", 1_000_000,
@@ -259,7 +319,7 @@ PROFILES = {
             TTE_OPERATING + ("Cost of net debt", "Other financial income", "Other financial expense",
                              "Net income (loss) from equity affiliates", "Income taxes", "-CONSOLIDATED NET INCOME"),
             ("CONSOLIDATED NET INCOME", "-Non-controlling interests", "-TotalEnergies share"),
-        ), revised_sales=True,
+        ), sales_basis=SALES_BASIS,
     ),
     (34088, "0000034088-26-000045"): Profile(
         "Consolidated Statement Of Income", "R3.htm", 1_000_000,
@@ -269,7 +329,7 @@ PROFILES = {
             (XOM_SALES, XOM_AFFILIATES, XOM_OTHER, "-Revenues"),
             XOM_OPERATING + (XOM_AFFILIATES, XOM_OTHER, "-Interest expense",
                              "-Non-service pension and postretirement benefit expense", "-Income (loss) before income taxes"),
-        ), revised_sales=True,
+        ), sales_basis=SALES_BASIS,
     ),
     (1114448, "0001114448-26-000004"): Profile(
         "Consolidated income statements", "R2.htm", 1_000_000,
@@ -327,7 +387,8 @@ def supported(cik, report):
 def income_tag(field, parts):
     if field == "ebit":
         return OPERATING_TAG
-    if field in {MINING_SUBTOTAL, OPERATING_SUBTOTAL, "net_interest_expense_filed"}:
+    if (field in {MINING_SUBTOTAL, OPERATING_SUBTOTAL, "net_interest_expense_filed"}
+            or field == "net_fee_income" and len(parts) > 1):
         return INCOME_SUBTOTAL_TAG
     return parts[0]["tag"]
 
@@ -374,7 +435,7 @@ def enrich_operating(cache, cik, report, statement):
     for equation in profile.checks:
         if abs(sum_terms([get_line(t) for t in equation])) > profile.tolerance:
             raise ValueError("Filed operating-income components do not reconcile")
-    if profile.revised_sales and "sales" in profile.anchors:
+    if profile.sales_basis and "sales" in profile.anchors:
         facts["sales_and_other_income"] = facts["sales"]
     for key, terms in profile.fields.items():
         parts = [get_line(term) for term in terms]
@@ -392,8 +453,12 @@ def enrich_operating(cache, cik, report, statement):
     if not scoped_income_reconciles(cik, report, facts):
         raise ValueError("Published income components do not reconcile to the annual statement")
     result = {**statement, "facts": facts, "income_profiled": True}
-    if profile.revised_sales:
-        result["sales_basis"] = SALES_BASIS
+    if profile.sales_basis:
+        result["sales_basis"] = profile.sales_basis
+    if profile.sales_basis == BANK_SALES_BASIS:
+        result["bank_income_bridge"] = {line: get_line(line) for line in bank_bridge_lines(profile)}
+        if not bank_income_reconciles(profile, result):
+            raise ValueError("Published bank income rows do not reconcile")
     return result
 
 
@@ -448,6 +513,30 @@ def scoped_pretax_facts(cik, report, period):
     return {field: {**pretax, "tag": PRETAX_BRIDGE_TAG,
                     "value": sum(part["value"] * part["sign"] for part in parts),
                     "locator": "Filed pretax income with named note adjustments", "components": parts}}
+
+
+def bank_bridge_lines(profile):
+    return sorted({*profile.anchors.values(),
+                   *(t.removeprefix("-") for check in profile.checks for t in check),
+                   *(t.removeprefix("-") for terms in profile.fields.values() for t in terms)})
+
+
+def bank_income_reconciles(profile, period):
+    bridge = period.get("bank_income_bridge")
+    if profile is None or profile.sales_basis != BANK_SALES_BASIS:
+        return bridge is None
+    if not bridge or bridge.keys() != set(bank_bridge_lines(profile)):
+        return False
+    facts = period["facts"]
+    return (
+        all(line == part["line"] and part["sign"] == 1 and type(part["value"]) is int and part["tag"]
+            for line, part in bridge.items())
+        and all(bridge[line]["value"] == facts[key]["value"] for key, line in profile.anchors.items())
+        and all(part == {**bridge[part["line"]], "sign": part["sign"]}
+                for key in profile.fields for part in facts[key]["components"])
+        and all(abs(sum((-1 if t.startswith("-") else 1) * bridge[t.removeprefix("-")]["value"] for t in check))
+                <= profile.tolerance for check in profile.checks)
+    )
 
 
 def scoped_income_reconciles(cik, report, facts):
