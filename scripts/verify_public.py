@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas import hkex
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
 from equity_atlas.balance_sheet import EQUITY_TAG as BALANCE_EQUITY_TAG, TAG as BALANCE_LIABILITIES_TAG, balance_facts
@@ -52,6 +53,7 @@ if [r["symbol"] for r in rows]!=sorted({r["symbol"] for r in rows}):
 asof=date.fromisoformat(snap["as_of"])
 fresh=0
 sec_count=0
+hkex_covered=0
 interim_expected=0
 quarters=0
 capex_profiles=0
@@ -358,7 +360,16 @@ for row in rows:
         prices.append(q)
     if {"models","ratios"}&row.keys() and not q:
         raise SystemExit("Valuation without an approved market input")
-    if row["statement"]:
+    if row["id"].startswith("hkex:"):
+        try:
+            verified = (row["id"] == hkex.ROW_ID and row["symbol"] == hkex.SYMBOL and row["source"] == hkex.SOURCE
+                        and hkex.verified_statement(row["statement"], row["exchange_filing"], asof))
+        except (KeyError, TypeError, ValueError):
+            verified = False
+        if not verified:
+            raise SystemExit(f"Missing or unverified HKEX annual report for {row['symbol']}")
+        hkex_covered += 1
+    elif row["statement"]:
         verify_period(row["statement"], row)
         if "annual_exhibits_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
@@ -466,6 +477,8 @@ for row in rows:
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
+    if row["id"] == hkex.ROW_ID and row["balance_check"] != balance_check(row["statement"]):
+        raise SystemExit("HKEX balance-sheet reconciliation does not match published facts")
     audit = row.get("edgar", {})
     annual = audit.get("latest_annual")
     if ("annual_business_scopes_profiled" in snap["stats"] and row["id"] == f"sec:{DEERE:010d}"
@@ -583,8 +596,15 @@ if "annual_depreciation_profiled" in snap["stats"] and (depreciation_profiles, d
 if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
         snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
     raise SystemExit("Standalone interim coverage mismatch")
-if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
-    raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent statements")
+if "hkex_annual_expected" in snap["stats"]:
+    expected = int(any(r["symbol"] == hkex.SYMBOL for r in rows) and hkex.supported(hkex.CIK, asof))
+    if hkex_covered != expected or (hkex_covered, expected) != (
+            snap["stats"]["hkex_annual_covered"], snap["stats"]["hkex_annual_expected"]):
+        raise SystemExit("HKEX annual filing coverage mismatch")
+elif hkex_covered:
+    raise SystemExit("Missing HKEX annual filing coverage statistics")
+if fresh < .80*sec_count or fresh + hkex_covered != snap["stats"]["fresh"]:
+    raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent SEC statements")
 if open_market:
     prices.sort(key=lambda q:q["rank"])
     if (len(prices)!=50 or len({q["code"] for q in prices})!=50
@@ -593,4 +613,5 @@ if open_market:
         raise SystemExit("Public Taiwan universe incomplete or misranked")
     if snap["stats"]["metadata_verified"] < .95*sec_count:
         raise SystemExit("Insufficient SEC submissions coverage")
-print(f"Public artifact verified: {fresh}/{sec_count} recent statements, {len(prices)} exchange prices, dated {asof}")
+print(f"Public artifact verified: {fresh}/{sec_count} recent SEC statements, {hkex_covered} HKEX annual, "
+      f"{len(prices)} exchange prices, dated {asof}")

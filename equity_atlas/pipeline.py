@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import time
 
+from . import hkex
 from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
 from .balance_sheet import TAG as BALANCE_LIABILITIES_TAG, enrich_balance, supported as balance_supported
 from .capex import CAPEX_TAG, NET_PURCHASES, enrich_capex, supported as capex_supported
@@ -324,7 +325,18 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
         except (OSError,ValueError,KeyError,TypeError) as exc:
             issues.append(f"ESEF: {exc}")
     source, history, receipt=max(choices,key=lambda x:(x[1][-1]["end"],len(x[1]),x[0])) if choices else (None,[],None)
-    return {"entity_name":entity,"source":source,"history":history,"issues":issues,"receipt":receipt,"edgar":audit}
+    result = {"entity_name": entity, "source": source, "history": history, "issues": issues, "receipt": receipt, "edgar": audit}
+    if hkex.supported(cik, day):
+        result["exchange_filing"] = hkex.PROFILE.copy()
+        try:
+            exchange, receipts = hkex.load_annual(cache, day)
+            if not history or exchange[-1]["end"] > history[-1]["end"]:
+                history = [p for p in history if p["end"] < exchange[0]["end"]] + exchange
+                result.update(source=hkex.SOURCE, history=history, receipt=receipts["report"])
+                result["exchange_filing"].update(receipts)
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            issues.append(f"HKEX annual statements: {exc}")
+    return result
 
 def curated_history(symbol, day, curated):
     rec=curated.get(symbol)
@@ -389,7 +401,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
                 selected_source="Issuer"
         s=h[-1] if h else None
         k,g,why=classify(symbol,int(entry.get("sic") or 0))
-        row={"id":f"sec:{cik:010d}","name":entry["name"],
+        row_id = hkex.ROW_ID if hkex.supported(cik, day) else f"sec:{cik:010d}"
+        row={"id":row_id,"name":entry["name"],
              "symbol":symbol,"country":entry.get("country",""),"kind":k,"peer_group":g,
              "classification":why,"source":selected_source if s else None,"statement":s,
              "balance_check":balance_check(s) if s else None,
@@ -398,6 +411,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
                         for x in h],
              "issues":(payload or {}).get("issues",[]) + ([err] if err else []),"accounting":accounting(h),
              "edgar":(payload or {}).get("edgar",{})}
+        if row_id == hkex.ROW_ID:
+            row.update(name="China Mobile Limited", country="China",
+                       exchange_filing=(payload or {}).get("exchange_filing", hkex.PROFILE))
         if symbol=="TSM" and "2330" in taiwan:
             market=taiwan.pop("2330")
             row["market"]=market
@@ -413,14 +429,15 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                  knowable,{"TWD":fx},quote_day)
                     row.update(models=fit(case,[case]),ratios=case["ratios"],cycle=case["cycle"])
         rows.append(row)
-    sec_rows=list(rows)
+    exchange_rows = [r for r in rows if r["id"] == hkex.ROW_ID]
+    sec_rows = [r for r in rows if r["id"].startswith("sec:")]
     for quote in taiwan.values():
         rows.append({"id":f"xtai:{quote['code']}","symbol":quote["code"]+".TW","name":quote["name"],
                      "country":"Taiwan","kind":"unknown","peer_group":"TWSE issuer registry",
                      "classification":"Public exchange record","source":None,"statement":None,
                      "market":quote,"issues":["Normalized annual filings are pending for this Taiwan issuer."]})
     rows.sort(key=lambda r:r["symbol"])
-    if not any(r["statement"] for r in sec_rows):
+    if not any(r["statement"] for r in sec_rows + exchange_rows):
         raise RuntimeError("Public dataset has no qualifying filings; refusing to replace the deployed snapshot")
     def fresh(r):
         return bool(r["statement"] and 0 <= (day-date.fromisoformat(r["statement"]["end"])).days <= 465)
@@ -429,6 +446,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
     expected_interims = [r for r in verified if (interim := r["edgar"].get("latest_interim")) and
                          interim["end"] > (r["edgar"].get("latest_annual") or {}).get("end", "")]
     coverage={
+        "hkex_annual_expected": len(exchange_rows),
+        "hkex_annual_covered": sum(r["source"] == hkex.SOURCE and fresh(r) for r in exchange_rows),
         "sec_issuers":len(sec_rows), "metadata_verified":len(verified),
         "latest_annual_expected":len(latest),
         "latest_annual_extracted":sum(bool(r["source"]=="SEC" and r["statement"] and
@@ -475,8 +494,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
     }
     data={"mode":"public_market" if open_market else "public_fundamentals",
           "policy_version":VERSION,"as_of":str(day),"generated_at":datetime.now(timezone.utc).isoformat(),
-          "source":"SEC EDGAR filings and official exchange inputs" if open_market else "SEC EDGAR filings",
-          "stats":{"issuers":len(rows),"fresh":sum(fresh(r) for r in sec_rows),
+          "source":"SEC EDGAR filings and official exchange disclosures",
+          "stats":{"issuers":len(rows),"fresh":sum(fresh(r) for r in sec_rows + exchange_rows),
                    "priced":sum(bool(r.get("market")) for r in rows), **coverage},
           "rows":rows}
     if open_market:
@@ -553,8 +572,9 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
         if not cik and not lei:
             issues.append("Issuer report fallback requires a manual refresh." if extra else
                           "No validated SEC CIK or ESEF LEI; local filings adapter needed.")
+        row_id = f"sec:{cik:010d}" if cik else f"lei:{lei}" if lei else f"unresolved:{sym}"
         case=prepare({**r,"kind":kind,"peer_group":group,"classification":classification,
-                      "id":f"sec:{cik:010d}" if cik else f"lei:{lei}" if lei else f"unresolved:{sym}",
+                      "id":row_id,
                       "accounting":accounting(h),"source":outcome["source"],"entity_name":outcome["entity_name"],
                       "ev_exclusion":(
                           "Client-funds investments and financing need a separate enterprise-value bridge." if cik == ADP else
@@ -562,6 +582,8 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
                       ),
                       "source_receipt":outcome["receipt"],"as_of":str(day),"issues":issues,
                       "edgar":outcome.get("edgar",{}),"balance_check":balance_check(h[-1]) if h else None},h,fx,day)
+        if outcome.get("exchange_filing"):
+            case["exchange_filing"] = outcome["exchange_filing"]
         cases.append(case)
     # Same-group peer index avoids an all-universe search for every valuation.
     buckets={}

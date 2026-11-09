@@ -69,7 +69,6 @@ CASH_INVESTMENT = {
     "SCHW": ("USD", 548_000_000),
     "UBS": ("USD", 2_362_000_000),
     "BHP": ("USD", 9_910_000_000),
-    "0941.HK": ("CNY", 207_267_000_000),
     "ARM": ("USD", 575_000_000),
     "AZN": ("USD", 5_905_000_000),
     "BTI": ("GBP", 704_000_000),
@@ -609,6 +608,24 @@ issuers.update(BANK_INCOME)
 issuers.update(PARENT_EQUITY)
 issuers.update(CASH_BALANCES)
 issuers.update(DEBT_BALANCES)
+hkex = rows["0941.HK"]["statement"]
+hkex_values = {
+    "sales": 1_050_187, "ebit": 148_932, "net_parent": 137_095, "net_consolidated": 137_264,
+    "assets": 2_128_182, "liabilities": 695_331, "book": 1_428_475, "total_equity": 1_432_851,
+    "cash": 97_267, "cfo": 232_919, "da": 189_999, "capex_mixed_outflow": 156_951,
+    "div": 103_410, "debt_total": 9_748, "lease_liabilities_separate": 91_449,
+    "bank_borrowings_proceeds": 9_848, "bank_borrowings_repayments": 10_251, "debt_net": -403,
+    "debt_acquired": 10_151, "debt_other_noncash": 0,
+}
+if (hkex["end"], hkex["currency"], hkex["filing"]) != (
+        "2025-12-31", "CNY", "https://www1.hkexnews.hk/listedco/listconews/sehk/2026/0423/2026042300752.pdf"):
+    raise SystemExit("China Mobile: expected its FY2025 audited HKEX report")
+if "capex" in hkex["facts"] or any(hkex["facts"][k]["value"] != n * 1_000_000 for k, n in hkex_values.items()):
+    raise SystemExit("China Mobile: unexpected audited amount or combined investment scope")
+if "2021-12-31" != rows["0941.HK"]["edgar"]["latest_annual"]["end"]:
+    raise SystemExit("China Mobile: original EDGAR history is missing")
+issuers.add("0941.HK")
+checked += len(hkex_values)
 issuers.update(FUNDING_BALANCES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")
