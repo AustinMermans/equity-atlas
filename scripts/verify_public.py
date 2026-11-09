@@ -13,6 +13,7 @@ from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, AP
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 reports_only_net_purchases, required_additional_fields, valid_capex_components)
 from equity_atlas.catalog import SUCCESSIONS
+from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
                                        rule_key as depreciation_rule_key, valid_component as valid_depreciation_component)
@@ -45,6 +46,7 @@ interim_expected=0
 quarters=0
 capex_profiles=0
 note_profiles=0
+business_profiles=0
 income_profiles=0
 operating_gaps=0
 depreciation_profiles=0
@@ -176,6 +178,15 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual earnings exhibit") from exc
         if any(period["facts"].get(key) != value for key, value in disclosed.items()):
             raise SystemExit("Annual earnings exhibit facts do not reconcile")
+    scope_evidence = period.get("annual_business_scopes")
+    scoped = {}
+    if scope_evidence:
+        try:
+            scoped = business_facts(selected_cik, annual_report, period, scope_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise SystemExit("Unverified annual business scopes") from exc
+        if any(period["facts"].get(key) != value for key, value in scoped.items()):
+            raise SystemExit("Annual business-scope facts do not reconcile")
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -235,6 +246,8 @@ def verify_period(period, row):
                             verify_income_fact(period, annual_report, selected_cik, income_profile, key, fact))
         if fact["tag"] == DEPRECIATION_TAG:
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
+        if fact["tag"] == BUSINESS_TAG:
+            official = scoped.get(key) == fact
         if fact["tag"] == NOTE_TAG:
             official = bool(annual_report and valid_note(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == WORKBOOK_CAPEX_TAG:
@@ -324,6 +337,12 @@ for row in rows:
             if (profiled or report and (cik, report["accession"]) in NOTES_PINNED) and profiled != expected.keys():
                 raise SystemExit(f"Refusing to lose reconciled annual filing notes for {row['symbol']}")
             note_profiles += bool(profiled)
+        if "annual_business_scopes_profiled" in snap["stats"] and row["id"] == f"sec:{DEERE:010d}":
+            period = row["statement"]
+            profiled = bool(period.get("annual_business_scopes"))
+            if period["filing"] == DEERE_PINNED and not profiled:
+                raise SystemExit("Refusing to lose Deere business-scope reconciliation")
+            business_profiles += profiled
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
@@ -370,6 +389,10 @@ for row in rows:
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     audit = row.get("edgar", {})
     annual = audit.get("latest_annual")
+    if ("annual_business_scopes_profiled" in snap["stats"] and row["id"] == f"sec:{DEERE:010d}"
+            and annual and annual["accession"] == DEERE_PINNED
+            and (row["statement"] or {}).get("filing") != DEERE_PINNED):
+        raise SystemExit("Refusing to lose Deere's verified annual filing")
     if row["id"].startswith("sec:"):
         cik = int(row["id"].removeprefix("sec:"))
         if annual and (row["statement"] or {}).get("filing") != annual["accession"]:
@@ -413,6 +436,8 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
         raise SystemExit(f"{source} coverage mismatch")
 if "annual_exhibits_profiled" in snap["stats"] and exhibit_profiles != snap["stats"]["annual_exhibits_profiled"]:
     raise SystemExit("Annual earnings exhibit coverage mismatch")
+if "annual_business_scopes_profiled" in snap["stats"] and business_profiles != snap["stats"]["annual_business_scopes_profiled"]:
+    raise SystemExit("Annual business-scope coverage mismatch")
 if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["annual_note_profiled"]:
     raise SystemExit("Annual filing note coverage does not match published facts")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:

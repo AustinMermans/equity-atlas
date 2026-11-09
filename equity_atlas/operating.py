@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .annual_exhibit import ADP, supported as exhibit_supported
+from .deere import CIK as DEERE, PINNED as DEERE_PINNED, supported as deere_business_scopes
 from .facts import annual_rule_key, recurring_annual_rules
 from .rendered_filing import ENDPOINT, annual_table, scaled
 
@@ -210,7 +211,7 @@ REVIEWED_GAPS = {
     (8670, "0000008670-26-000030"): "Operating and corporate financing need to be separated. ADP earns interest on client funds and includes related borrowing expense in its adjusted measure.",
     (2809, "0001104659-26-032153"): "The income statement groups mining costs with derivatives, currency effects and other expenses. Their operating scope needs a note-level reconciliation.",
     (14272, "0000014272-26-000004"): "The other-income and expense line includes financing, litigation and other items. It needs a note-level reconciliation.",
-    (315189, "0001104659-25-122321"): "Deere reports segment operating profit and consolidates a captive finance business. The equipment and finance scopes need separate reconciliations.",
+    (DEERE, DEERE_PINNED): "Deere reports operating profit by segment. Its consolidated reconciliation includes Financial Services interest and groups corporate costs with nonoperating items.",
     (40545, "0000040545-26-000008"): "GE reports adjusted aerospace operating profit and consolidates insurance results. Aerospace and insurance need separate reconciliations.",
     (51143, "0000051143-26-000010"): "IBM consolidates its financing segment and publishes a non-GAAP operating measure. Consolidated operating and financing items need separate reconciliations.",
     (200406, "0000200406-26-000016"): "The other-income and expense line mixes operating and nonoperating items. The note disclosures need to be reconciled before deriving an operating subtotal.",
@@ -222,6 +223,8 @@ REVIEWED_GAPS = {
 def gap_reason(cik, report):
     if cik == ADP and exhibit_supported(cik, report):
         return REVIEWED_GAPS[(ADP, "0000008670-26-000030")]
+    if deere_business_scopes(cik, report):
+        return REVIEWED_GAPS[(DEERE, DEERE_PINNED)]
     return REVIEWED_GAPS.get((cik, report["accession"]))
 
 

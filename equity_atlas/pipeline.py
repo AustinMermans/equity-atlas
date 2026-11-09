@@ -11,6 +11,7 @@ import time
 
 from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
 from .capex import CAPEX_TAG, NET_PURCHASES, enrich_capex, supported as capex_supported
+from .deere import enrich_business_scopes, supported as business_scopes_supported
 from .depreciation import (
     TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
     rule_key as depreciation_rule_key, separate_partial_da,
@@ -248,6 +249,11 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1] = enrich_notes(cache, obj, meta, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual filing notes for {selected['end']}: {exc}")
+                if selected_filing and business_scopes_supported(cik, selected_filing):
+                    try:
+                        history[-1] = enrich_business_scopes(cache, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual business scopes for {selected['end']}: {exc}")
                 if selected_filing and "ebit" not in history[-1]["facts"]:
                     reason=gap_reason(cik,selected_filing)
                     if reason:
@@ -413,6 +419,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_exhibits_profiled":sum(bool((r["statement"] or {}).get("annual_earnings_exhibit")) for r in sec_rows),
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
+        "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
         "annual_operating_profit_reviewed_gaps":sum(bool((r["statement"] or {}).get("operating_profit_gap")) for r in sec_rows),
         "annual_depreciation_profiled":sum(any(f["tag"] in {DEPRECIATION_TAG,WORKBOOK_DA_TAG}

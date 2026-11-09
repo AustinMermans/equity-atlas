@@ -9,6 +9,7 @@ from .rendered_filing import ENDPOINT, amount, annual_table, scaled, valid_table
 
 PPE_OTHER = "us-gaap:PaymentsToAcquireOtherPropertyPlantAndEquipment"
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
+LEASE_EQUIPMENT = "us-gaap:PaymentsToAcquireEquipmentOnLease"
 INTANGIBLES = "us-gaap:PaymentsToAcquireIntangibleAssets"
 IFRS_PPE = "ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"
 IFRS_INTANGIBLES = "ifrs-full:PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities"
@@ -132,7 +133,13 @@ SECTION_PROFILES = {
     (18230, "0000018230-26-000008"): (  # CAT
         "Consolidated Statement of Cash Flow for the Years Ended December 31", "R9.htm", 1_000_000, (
             (PPE, "Capital expenditures - excluding equipment leased to others"),
-            ("us-gaap:PaymentsToAcquireEquipmentOnLease", "Expenditures for equipment leased to others"),
+            (LEASE_EQUIPMENT, "Expenditures for equipment leased to others"),
+        ),
+    ),
+    (315189, "0001104659-25-122321"): (  # DE
+        "STATEMENTS OF CONSOLIDATED CASH FLOWS", "R6.htm", 1_000_000, (
+            (PPE, "Purchases of property and equipment"),
+            (LEASE_EQUIPMENT, "Cost of equipment on operating leases acquired"),
         ),
     ),
     (1652044, "0001652044-26-000018"): (  # GOOG

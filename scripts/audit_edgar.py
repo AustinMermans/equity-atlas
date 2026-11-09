@@ -74,6 +74,7 @@ CASH_INVESTMENT = {
     "AZN": ("USD", 5_905_000_000),
     "BTI": ("GBP", 704_000_000),
     "CAT": ("USD", 4_286_000_000),
+    "DE": ("USD", 4_228_000_000),
     "GSK": ("GBP", 2_985_000_000),
     "IBM": ("USD", 1_738_000_000),
     "INTC": ("USD", 17_672_000_000),
@@ -166,6 +167,25 @@ for symbol, (currency, fields) in INCOME_STATEMENT.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
+# Deere's fiscal 2025 segment note and supplemental consolidating data, USD millions.
+DEERE_SCOPES = {
+    "ebit_equipment_segments": 4906, "ebit_financial_services_segment": 1114,
+    "ebit_reported_segment_total": 6020, "pretax_equipment_operations": 5145,
+    "pretax_financial_services": 1112, "net_equipment_operations": 4137,
+    "net_financial_services": 890, "cfo_equipment_operations": 5100,
+    "cfo_financial_services": 2480, "distributions_from_financial_services": 1368,
+    "cfo_equipment_before_finance_distributions": 3732, "da_equipment_operations": 1280,
+    "da_financial_services": 1082, "capex_ppe_equipment_operations": 1358,
+    "capex_ppe_financial_services": 2, "operating_lease_equipment_purchases_financial_services": 3053,
+    "operating_lease_equipment_sales_financial_services": 1917, "assets_equipment_operations": 42859,
+    "assets_financial_services": 70021, "equity_equipment_operations_adjusted": 18887,
+    "equity_financial_services": 7069,
+}
+for key, amount in DEERE_SCOPES.items():
+    fact = rows["DE"]["statement"]["facts"].get(key, {})
+    if (fact.get("unit"), fact.get("value")) != ("USD", amount * 1_000_000):
+        raise SystemExit(f"DE {key}: annual business-scope amount changed")
+    checked += 1
 reviewed_gaps = {"AEM", "BMY", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
 for symbol in reviewed_gaps:
     period = rows[symbol]["statement"]
