@@ -1,6 +1,7 @@
 """Conservative annual statement extraction with concept and filing provenance."""
 from collections import defaultdict
 from datetime import date
+from decimal import Decimal, localcontext
 import math
 import re
 
@@ -110,6 +111,33 @@ def latest_filing(index, forms):
     return max((x for x in index.values() if x["form"] in forms),
                key=lambda x: (x["end"], x["filed"], x["accession"]), default=None)
 
+def precise_duplicates(facts):
+    """Keep the most precise representation of consistent tagged duplicates."""
+    by_precision = {}
+    lower, upper = [], []
+    if len({(x["tag"], x.get("unit")) for x in facts}) != 1:
+        return []
+    with localcontext() as context:
+        context.prec = 80
+        for fact in facts:
+            raw = fact.get("decimals") or ""
+            value = Decimal(str(fact["value"]))
+            if raw == "INF":
+                precision, radius = 100, Decimal(0)
+            elif re.fullmatch(r"-?[0-9]{1,2}", raw) and -30 <= int(raw) <= 30:
+                precision = int(raw)
+                radius = Decimal("0.5").scaleb(-precision)
+            else:
+                return []
+            candidates = by_precision.setdefault(precision, [])
+            if candidates and candidates[0]["value"] != fact["value"]:
+                return []
+            candidates.append(fact)
+            lower.append(value-radius)
+            upper.append(value+radius)
+    return by_precision[max(by_precision)] if max(lower) <= min(upper) else []
+
+
 def _pick_fields(metrics):
     # Count distinct flow concepts per start date, not duplicate fact records.
     starts = defaultdict(set)
@@ -128,8 +156,10 @@ def _pick_fields(metrics):
         priority = min(x["priority"] for x in eligible)
         eligible = [x for x in eligible if x["priority"] == priority]
         if len({x["value"] for x in eligible}) != 1:
-            conflicts.append(metric)
-            continue
+            eligible = precise_duplicates(eligible)
+            if not eligible:
+                conflicts.append(metric)
+                continue
         fact = max(eligible, key=lambda x: (x["filed"], x["tag"], x.get("fact_id", ""))).copy()
         fact.pop("priority")
         chosen[metric] = fact

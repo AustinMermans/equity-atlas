@@ -6,6 +6,8 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from equity_atlas.catalog import SUCCESSIONS
+from equity_atlas.inline import inline_url
 from equity_atlas.edgar import REVIEWED_AMENDMENTS
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
@@ -33,6 +35,13 @@ if open_market:
 def verify_period(period, row):
     mirror = None
     route = period.get("route")
+    inline_copy = None
+    if route == "issuer_inline":
+        report = row["edgar"]["latest_interim"]
+        cik = int(row["id"].removeprefix("sec:"))
+        inline_copy = inline_url(cik,report)
+        if not inline_copy or period["report"] != report or row["edgar"]["interim_routes"].get(period["period_kind"]) != route:
+            raise SystemExit("Inline copy does not match the expected SEC filing")
     if route in COPY_SOURCES:
         report = row["edgar"]["latest_annual"]
         cik = int(row["id"].removeprefix("sec:"))
@@ -52,6 +61,10 @@ def verify_period(period, row):
             official=(source==mirror[2] and url==report["url"] and fact["filed"]==report["filed"] and
                       fact["form"]==report["form"] and fact["tag"].startswith(route + ":") and
                       len(fact["sha256"])==64)
+        if inline_copy:
+            official = (source == inline_copy and url == report["url"] and fact["accession"] == report["accession"]
+                        and fact["filed"] == report["filed"] and fact["form"] == report["form"]
+                        and bool(fact.get("context_id")) and len(fact["sha256"]) == 64)
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -81,6 +94,11 @@ for row in rows:
         verify_period(row["statement"], row)
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     audit = row.get("edgar", {})
+    succession = audit.get("succession")
+    if succession:
+        cik = int(row["id"].removeprefix("sec:"))
+        if succession != SUCCESSIONS.get(cik) or date.fromisoformat(succession["effective"]) > asof:
+            raise SystemExit("Unverified registrant succession")
     reviews = audit.get("amendment_reviews", [])
     if reviews:
         statement, annual = row["statement"], audit["latest_annual"]

@@ -1,5 +1,6 @@
 """Manual policy seed plus SEC SIC fallback. Keys are listing-qualified provider symbols."""
 from collections import defaultdict
+from datetime import date
 from urllib.parse import urlencode
 from .fetch import ESEF
 
@@ -46,6 +47,24 @@ CLUSTERS = {
 PROFILE = {s:(k,g) for (k,g),symbols in CLUSTERS.items() for s in symbols.split()}
 # CIK overrides validated against SEC entity names; delisted ADR histories will normally be stale.
 CIKS = {"SPCX":(1181412,"SPACE EXPLORATION"),"0857.HK":(1108329,"PETROCHINA"),"0941.HK":(1117795,"CHINA MOBILE")}
+# SEC Rule 12g-3 successions with continuity of the consolidated reporting entity.
+SUCCESSIONS = {
+    2115436: {
+        "predecessor_cik": 34088,
+        "effective": "2026-07-01",
+        "url": "https://www.sec.gov/Archives/edgar/data/2115436/000119312526291990/d71068d8k12b.htm",
+    },
+}
+
+
+def cik_on(cik, day):
+    for current, succession in SUCCESSIONS.items():
+        predecessor = succession["predecessor_cik"]
+        if cik in {current, predecessor}:
+            return current if day >= date.fromisoformat(succession["effective"]) else predecessor
+    return cik
+
+
 LEIS = {
     "OR.PA":"529900JI1GG6F7RKVI53", "MC.PA":"IOG4E947OATN0KJYSD45",
     "ITX.MC":"549300TTCXZOGZM2EY83", "SIE.DE":"W38RGI023J3WT1HWRP32",

@@ -1,8 +1,10 @@
 from datetime import date
 import unittest
 
+from equity_atlas.catalog import cik_on
 from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
-from equity_atlas.facts import from_sec
+from equity_atlas.facts import from_sec, precise_duplicates
+from equity_atlas.inline import periods_from_inline
 from equity_atlas.issuer_20f import column, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
 from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount
@@ -119,6 +121,56 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(amendment_reviews(filings, statement, filings[reviewed])[0]["accession"], reviewed)
         filings[future] = {**filings[reviewed], "accession": future, "filed": "2026-03-02"}
         self.assertEqual(amendment_reviews(filings, statement, filings[future]), [])
+
+    def test_inline_parent_facts_apply_scale_and_sign(self):
+        html = """
+        <html xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+              xmlns:xbrli="http://www.xbrl.org/2003/instance"
+              xmlns:iso="http://www.xbrl.org/2003/iso4217"
+              xmlns:dei="http://xbrl.sec.gov/dei/2026"
+              xmlns:us-gaap="http://fasb.org/us-gaap/2026"
+              xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2022-02-16">
+        <ix:resources><xbrli:unit id="USD"><xbrli:measure>iso:USD</xbrli:measure></xbrli:unit>
+        <xbrli:context id="parent">
+          <xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">1</xbrli:identifier></xbrli:entity>
+          <xbrli:period><xbrli:startdate>2026-07-01</xbrli:startdate><xbrli:enddate>2026-09-30</xbrli:enddate></xbrli:period>
+        </xbrli:context>
+        <xbrli:context id="partnership">
+          <xbrli:entity><xbrli:identifier scheme="http://www.sec.gov/CIK">2</xbrli:identifier></xbrli:entity>
+          <xbrli:period><xbrli:startdate>2026-07-01</xbrli:startdate><xbrli:enddate>2026-09-30</xbrli:enddate></xbrli:period>
+        </xbrli:context></ix:resources>
+        <ix:nonnumeric name="dei:EntityCentralIndexKey" contextref="parent">0000000001</ix:nonnumeric>
+        <ix:nonnumeric name="dei:DocumentType" contextref="parent">10-Q</ix:nonnumeric>
+        <ix:nonnumeric name="dei:DocumentPeriodEndDate" contextref="parent">September 30, 2026</ix:nonnumeric>
+        <ix:nonfraction name="us-gaap:Revenues" contextref="parent" unitref="USD" scale="3"
+                        decimals="-3" id="revenue" format="ixt:num-dot-decimal">1,500</ix:nonfraction>
+        <ix:nonfraction name="us-gaap:NetIncomeLoss" contextref="parent" unitref="USD" scale="3"
+                        sign="-" decimals="-3" id="earnings" format="ixt:num-dot-decimal"><b>25</b></ix:nonfraction>
+        <ix:nonfraction name="us-gaap:NetIncomeLoss" contextref="partnership" unitref="USD"
+                        id="wrong-entity" format="ixt:num-dot-decimal">999</ix:nonfraction>
+        </html>"""
+        report = {"end": "2026-09-30", "filed": "2026-10-29", "form": "10-Q",
+                  "url": "https://www.sec.gov/Archives/edgar/test.htm", "accession": "0000000001-26-000001"}
+        periods = periods_from_inline(html.encode(), META, report, 1, ("quarter", "ytd"))
+        self.assertEqual(periods["ytd"], [])
+        self.assertEqual(periods["quarter"][0]["facts"]["sales"]["value"], 1_500_000)
+        self.assertEqual(periods["quarter"][0]["facts"]["net"]["value"], -25_000)
+        self.assertEqual(periods["quarter"][0]["facts"]["net"]["fact_id"], "earnings")
+        with self.assertRaises(ValueError):
+            periods_from_inline(html.encode(), META, {**report, "form": "10-K"}, 1, ("quarter",))
+
+    def test_rounded_duplicate_retains_more_precise_cash(self):
+        rounded = {"tag": "us-gaap:CashAndCashEquivalentsAtCarryingValue", "unit": "USD",
+                   "value": 2_273_000_000, "decimals": "-6"}
+        precise = {**rounded, "value": 2_273_497_000, "decimals": "-3"}
+        self.assertEqual(precise_duplicates([rounded, precise]), [precise])
+        self.assertEqual(precise_duplicates([rounded, {**precise, "value": 2_274_497_000}]), [])
+        self.assertEqual(precise_duplicates([rounded, {**precise, "decimals": "-6"}]), [])
+
+    def test_registrant_cik_follows_effective_date(self):
+        self.assertEqual(cik_on(2115436, date(2026, 6, 30)), 34088)
+        self.assertEqual(cik_on(34088, date(2026, 7, 1)), 2115436)
+        self.assertEqual(cik_on(1045609, DAY), 1045609)
 
     def test_issuer_copy_uses_current_column_after_optional_note(self):
         self.assertEqual(column("Net profit . . . .    ¥(2,500)    ¥ 1,999", "Net profit", 2), -2500)

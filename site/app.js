@@ -66,12 +66,14 @@ function render() {
 }
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
- const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+n2.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+(['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':'')+'</td></tr>').join(''):'';
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+n2.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+(['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':period.route==='issuer_inline'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
  const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
  const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
  const q=r.market;
  const marketDetail=q?'<h3>Taiwan Stock Exchange</h3><p>'+esc(q.code)+' · NT$'+n2.format(q.close)+' close on '+esc(q.date)+'. Estimated common equity cap NT$'+money.format(q.estimated_cap_twd)+' uses '+n2.format(q.issued_shares)+' issued shares from '+esc(q.shares_date)+'.</p><p><a href="https://data.gov.tw/en/datasets/11549">Closing prices</a> · <a href="https://data.gov.tw/en/datasets/18419">Issuer registry</a> · <a href="https://data.gov.tw/dataset/11764">Exchange multiples</a></p>':'';
  const audit=r.edgar?.latest_annual?'<p>Latest annual filing in SEC submissions: <a href="'+safeUrl(r.edgar.latest_annual.url)+'" target="_blank" rel="noopener noreferrer">'+esc(r.edgar.latest_annual.end)+'</a>.</p>':'';
+ const succession=r.edgar?.succession;
+ const lineage=succession?'<p><a href="'+safeUrl(succession.url)+'" target="_blank" rel="noopener noreferrer">Registrant succession effective '+esc(succession.effective)+'</a>. Earlier consolidated history retains the predecessor’s filing links.</p>':'';
  const amendmentReviews=(r.edgar?.amendment_reviews||[]).map(x=>'<li><a href="'+safeUrl(x.url)+'" target="_blank" rel="noopener noreferrer">'+esc(x.accession)+'</a> · '+esc(x.scope)+'</li>').join('');
  const amendments=amendmentReviews?'<p>The reviewed amendments leave the consolidated statement figures in the original filing intact.</p><ul>'+amendmentReviews+'</ul>':'';
  const percentInputs=new Set(['re','g','roe','wacc','payout','terminal_roic','terminal_roe','tax','capex_sales','da_sales','nwc_sales_proxy','growth_start','ebit_margin','target_margin','fcfe_sales','market_implied_dividend_growth','market_implied_terminal_ebit_margin','market_implied_roe']);
@@ -87,7 +89,7 @@ function detail(r) {
    marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+audit+amendments+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
    (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();

@@ -9,9 +9,10 @@ from pathlib import Path
 import re
 import time
 
-from .catalog import CIKS, LEIS, classify, esef_list, sec_meta
+from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import amendment_reviews, annual_from_instance, instance_url, periods_from_instance
+from .inline import inline_url, periods_from_inline
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
@@ -71,13 +72,25 @@ def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, iss
                     routes[kind]="filing_instance"
         except (OSError,ValueError,KeyError,TypeError) as exc:
             issues.append(f"SEC interim archive for {interim['end']}: {exc}")
+    pending=tuple(kind for kind in missing if kind not in results)
+    mirror=inline_url(cik,interim)
+    if pending and mirror:
+        try:
+            raw, receipt=cache.get(mirror,8760)
+            parsed=periods_from_inline(raw,receipt,interim,cik,pending)
+            for kind in pending:
+                if parsed[kind]:
+                    results[kind]=parsed[kind][-1]
+                    routes[kind]="issuer_inline"
+        except (OSError,ValueError,KeyError,TypeError) as exc:
+            issues.append(f"Issuer Inline XBRL for {interim['end']}: {exc}")
     for kind in missing:
         if kind not in results:
             routes[kind]="unavailable"
     return {**results,"interim_routes":routes}
 
 
-def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
+def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, annual_only=False):
     choices=[]
     issues=[]
     entity=None
@@ -97,10 +110,27 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
                     audit["metadata"]="unavailable"
                     issues.append(f"SEC submissions metadata: {exc}")
             history=from_sec(obj,meta,day,cik,filings)
+            predecessor_annual=None
+            succession=SUCCESSIONS.get(cik)
+            if succession and day>=date.fromisoformat(succession["effective"]):
+                effective=date.fromisoformat(succession["effective"])
+                prior=source_history(cache,succession["predecessor_cik"],None,effective-timedelta(days=1),
+                                     sec_ttl_hours,audit_edgar,annual_only=True)
+                previous=prior["history"]
+                first_current=history[0]["end"] if history else succession["effective"]
+                if not history and previous:
+                    annual_receipt=prior["receipt"]
+                history=[x for x in previous if x["end"]<first_current]+history
+                predecessor_annual=prior["edgar"].get("latest_annual")
+                audit["succession"]=succession
+                if not previous:
+                    issues.append("Predecessor annual history unavailable.")
             if audit_edgar:
                 annual=latest_filing(filings,ANNUAL)
                 interim=latest_filing(filings,INTERIM)
-                audit.update(latest_annual=annual,latest_interim=interim)
+                audit.update(latest_annual=annual or predecessor_annual,latest_interim=interim)
+                if "succession" in audit and not (annual or predecessor_annual):
+                    audit["metadata"]="unavailable"
                 audit["annual_route"]="company_facts" if history else "unavailable"
                 statement=history[-1] if history else None
                 same_year=bool(annual and statement and annual["end"]==statement["end"])
@@ -135,8 +165,9 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False):
                                 annual_receipt=mirror_meta
                             except (OSError,ValueError,KeyError,TypeError) as mirror_exc:
                                 issues.append(f"Public 20-F copy extraction for {annual['end']}: {mirror_exc}")
-                if interim and (not annual or interim["end"] > annual["end"]):
-                    audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual,interim,issues))
+                annual_anchor=annual or predecessor_annual
+                if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
+                    audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
             if history:
                 route=COPY_SOURCES.get(audit.get("annual_route"),"SEC")
                 choices.append((route,history,annual_receipt or meta))
@@ -204,7 +235,7 @@ def list_public(public_csv):
 
 def make_public(cache, csv_path, out, day, open_market=False):
     public=list_public(csv_path)
-    ciks={int(x["cik"]) for x in public.values()}
+    ciks={cik_on(int(x["cik"]),day) for x in public.values()}
     # Probe the official route before attempting the entire list. One blocked
     # source should not generate hundreds of identical requests.
     probe=320193 if 320193 in ciks else min(ciks)
@@ -222,7 +253,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         market_rows, market_sources=load_taiwan(cache,day)
         taiwan={r["code"]:r for r in market_rows}
     for symbol, entry in sorted(public.items()):
-        cik=int(entry["cik"])
+        cik=cik_on(int(entry["cik"]),day)
         payload,err=sources[cik]
         h=(payload or {}).get("history",[])
         selected_source=(payload or {}).get("source")
@@ -325,7 +356,7 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
     mapped={}
     for row in ranked:
         sym=row["symbol"]
-        cik=CIKS.get(sym,(None,None))[0] or idx.get(sym) or idx.get(sym.replace(".","-"))
+        cik=cik_on(CIKS.get(sym,(None,None))[0] or idx.get(sym) or idx.get(sym.replace(".","-")),day)
         if cik and cik in mapped:
             raise ValueError(f"duplicate issuer CIK {cik}: {mapped[cik]} and {sym}; resolve share classes before valuing")
         if cik:

@@ -125,11 +125,15 @@ def periods_from_instance(raw, meta, filing, cik, kinds):
         raise ValueError("Invalid extracted XBRL XML") from exc
     if root is None or root.tag != XBRL + "xbrl":
         raise ValueError("Expected SEC extracted XBRL instance")
-    contexts = {el.get("id"): _context(el, cik) for el in root.findall(XBRL + "context")}
-    units = {el.get("id"): _unit(el, namespaces) for el in root.findall(XBRL + "unit")}
+    return _periods(root, root, namespaces, meta, filing, cik, kinds)
+
+
+def _periods(resources, nodes, namespaces, meta, filing, cik, kinds):
+    contexts = {el.get("id"): _context(el, cik) for el in resources.findall(XBRL + "context")}
+    units = {el.get("id"): _unit(el, namespaces) for el in resources.findall(XBRL + "unit")}
     groups = {kind: defaultdict(lambda: defaultdict(list)) for kind in kinds}
     period = date.fromisoformat(filing["end"])
-    for node in root:
+    for node in nodes:
         namespace, _, tag = node.tag.removeprefix("{").partition("}")
         if re.fullmatch(r"https?://fasb\.org/us-gaap/[^/]+", namespace):
             standard = "us-gaap"
@@ -160,6 +164,8 @@ def periods_from_instance(raw, meta, filing, cik, kinds):
                 "priority": priority, "url": filing["url"], "source": meta["url"], "sha256": meta["sha256"],
                 "context_id": node.get("contextRef"), "decimals": node.get("decimals"),
             }
+            if node.get("id"):
+                fact["fact_id"] = node.get("id")
             for kind in kinds:
                 if qualifies(metric, start, end, kind):
                     groups[kind][(end, unit.split("/")[0], filing["accession"])][metric].append(fact)
