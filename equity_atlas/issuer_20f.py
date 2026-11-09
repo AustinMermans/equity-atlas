@@ -27,7 +27,7 @@ CELL = re.compile(rf"(?:{AMOUNT}|\({AMOUNT}\)|[−–—-])")
 
 
 def statement_page(pages, title, footer, markers):
-    matches = [page for page in pages if title in page.splitlines() and page.rstrip().endswith(footer)]
+    matches = [page for page in pages if title in map(str.strip, page.splitlines()) and page.rstrip().endswith(footer)]
     if len(matches) != 1 or any(marker not in matches[0] for marker in markers):
         raise ValueError(f"Missing expected layout for {title} ({footer})")
     return matches[0]

@@ -74,7 +74,7 @@ TAGS = {
 }
 STOCK = {"assets","liabilities","book","total_equity","preferred","minority","cash","st_investments","debt","debt_current","debt_noncurrent","short_borrow","debt_total","ar","inventory","ap","common_book","preferred_liquidation","shares_outstanding","debt_current_total","cash_due_from_banks","interest_bearing_deposits_at_banks","customer_deposits","loans_net"}
 STOCK.update({"temporary_equity_total","temporary_equity_parent","redeemable_nci","redeemable_nci_redemption",
-              "redeemable_nci_cips","redeemable_nci_subco","hybrid_equity"})
+              "redeemable_nci_cips","redeemable_nci_subco","hybrid_equity","minority_consolidated_entities","minority_holdings"})
 ANNUAL = {"10-K","10-K/A","20-F","20-F/A","40-F","40-F/A","10-KT"}
 INTERIM = {"10-Q","10-Q/A","10-QT","10-QT/A"}
 REGISTRATION = {"S-1","S-1/A","F-1","F-1/A","424B4"}
