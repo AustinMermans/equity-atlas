@@ -5,7 +5,7 @@ import re
 from .balance_sheet import ASSETS, TITLES
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
-from .rendered_filing import annual_table, scaled, valid_table_source
+from .rendered_filing import annual_table, filing_tables, scaled, valid_table_source
 
 TAG = "derived:FiledCashBalance"
 TOTAL = "us-gaap:CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
@@ -81,14 +81,15 @@ TAGGED = {
     SBUX: {"cash": (TOTAL, "Consolidated balance sheet · Cash and cash equivalents")},
     WFC: {BROAD: (TOTAL, "Consolidated cash flow · Cash, cash equivalents, and restricted cash at end of period")},
 }
-NET = {AXP, BAC, BRK, CITI, CHUBB, GEV, JPM}
+HDFC_TITLE = "Cash and Due From Banks, and Restricted Cash - Additional Information (Detail)"
+HDFC_NOTE = ("disclosed:RestrictedReserveCash", "Note 4 · Restricted reserve cash")
+NET = {AXP, BAC, BRK, CITI, CHUBB, GEV, HDFC, JPM}
 GAPS = {
     GE: "The balance-sheet cash line includes restricted cash. The separately reported run-off insurance cash sits in other assets.",
-    HDFC: "The filed cash and due from banks balance includes restricted reserve cash.",
     MUFG: "The cash-flow total includes restricted amounts held both in bank deposits and in other assets.",
     WFC: "The filing reports cash and restricted cash together. The cash-flow total and the bank balance-sheet lines have different scopes.",
 }
-PROFILED = FACE.keys() | TAGGED.keys()
+PROFILED = FACE.keys() | TAGGED.keys() | {HDFC}
 PINNED = PROFILED | GAPS.keys()
 RECURRING = recurring_annual_rules(PINNED - {HDFC, SBUX})
 BALANCE_TITLES = TITLES | {"statement of financial position", "consolidated and combined statement of financial position"}
@@ -106,9 +107,10 @@ def cash_facts(cik, report, period, evidence):
     """Reconstruct the published amounts from reviewed, same-accession evidence."""
     key = rule_key(cik, report)
     face, tagged = FACE.get(key, {}), TAGGED.get(key, {})
+    note = {"restricted_cash": HDFC_NOTE} if key == HDFC else {}
     inputs = evidence["lines"]
     if ((period["period_kind"], period["filing"], period["end"]) != ("annual", report["accession"], report["end"])
-            or not inputs or inputs.keys() != (face.keys() | tagged.keys())):
+            or not inputs or inputs.keys() != (face.keys() | tagged.keys() | note.keys())):
         raise ValueError("Cash evidence is outside the selected annual filing")
     facts = period["facts"]
     assets = facts["assets"]
@@ -119,11 +121,12 @@ def cash_facts(cik, report, period, evidence):
 
     result = {}
     for field, part in inputs.items():
-        tag, label = (face if field in face else tagged)[field]
+        tag, label = (face if field in face else tagged if field in tagged else note)[field]
         if ((part["tag"], part["line"], part["sign"]) != (tag, label, 1)
                 or type(part["value"]) is not int or not 0 <= part["value"] <= assets["value"]
                 or tuple(part[k] for k in keys) != scope or not re.fullmatch(r"[0-9a-f]{64}", part["sha256"])
                 or (field in face and not valid_table_source(part, report))
+                or (field in note and not valid_table_source(part, report, "R86.htm"))
                 or (field in tagged and (part["source"] != SEC.format(cik) or "table_url" in part))):
             raise ValueError(f"Unverified cash balance for {field}")
         result[field] = {**part, "tag": TAG, "locator": label, "components": [part]}
@@ -133,7 +136,14 @@ def cash_facts(cik, report, period, evidence):
             raise ValueError("Cash restriction value conflicts with the filed precision")
         result["restricted_cash"]["rounding_increment"] = increment
     if key in NET:
-        combined, restricted = inputs[BROAD], inputs["restricted_cash"]
+        restricted = inputs["restricted_cash"]
+        if key == HDFC:
+            filed = facts[BROAD]
+            if tuple(filed[k] for k in keys) != scope or type(filed["value"]) is not int or not 0 <= filed["value"] <= assets["value"]:
+                raise ValueError("HDFC inclusive cash balance is outside the annual filing scope")
+            combined = {**filed, "line": filed["locator"], "sign": 1}
+        else:
+            combined = inputs[BROAD]
         value = combined["value"] - restricted["value"]
         if value < 0:
             raise ValueError("Restricted cash exceeds the reported inclusive balance")
@@ -167,7 +177,7 @@ def cash_facts(cik, report, period, evidence):
 def enrich_cash(cache, obj, meta, cik, report, period):
     key = rule_key(cik, report)
     face, tagged = FACE.get(key, {}), TAGGED.get(key, {})
-    if not (face or tagged) or "cash" in period["facts"]:
+    if key not in PROFILED or "cash" in period["facts"]:
         return period
     stock = {**period, "start": None}
     evidence = {"lines": {}}
@@ -194,6 +204,20 @@ def enrich_cash(cache, obj, meta, cik, report, period):
             if exact is not None and exact != value:
                 raise ValueError(f"Cash line disagrees with SEC Company Facts for {label}")
             parts[field] = part(tag, label, value, receipt, **table_source)
+    if key == HDFC:
+        year = report["end"][:4]
+        tables, digests, receipt = filing_tables(cache, cik, report, "Restricted Cash")
+        url = report["path"] + "/R86.htm"
+        table, = (t for t in tables if t["source"] == "xbrl report" and t["title"] == HDFC_TITLE and t["url"] == url)
+        expected = ["line", f"Mar. 31, {year} INR (₨)", f"Mar. 31, {year} USD ($)", f"Mar. 31, {int(year)-1} INR (₨)"]
+        if period["currency"] != "INR" or report["end"] != f"{year}-03-31" or table["columns"] != expected:
+            raise ValueError("Unexpected HDFC restricted-cash period or currency")
+        line, = (r for r in table["rows"] if r[0] == "Restricted cash")
+        amount = re.fullmatch(r"₨ ([0-9,]+\.[0-9]+)", str(line[1]))
+        if not amount or table["units"] != "$ in Millions":
+            raise ValueError("Missing INR restricted cash amount")
+        parts["restricted_cash"] = part(*HDFC_NOTE, scaled(amount[1].replace(",", ""), 1_000_000), receipt,
+                                        table_url=url, table_sha256_16=digests.get(url, ""))
     for field, (tag, label) in tagged.items():
         value = exact_sec_amount(obj, stock, report, tag)
         if value is None:

@@ -446,7 +446,7 @@ CASH_BALANCES = {
     "GE": ("USD", {"cash_including_restricted": 12392, "insurance_cash": 1264}),
     "GEV": ("USD", {"cash": 8469, "cash_including_restricted": 8848, "restricted_cash": 379}),
     "GILD": ("USD", {"cash": 7564}),
-    "HDB": ("INR", {"cash_including_restricted": 2547835.1}),
+    "HDB": ("INR", {"cash": 1537828.1, "cash_including_restricted": 2547835.1, "restricted_cash": 1010007}),
     "JPM": ("USD", {"cash": 314338, "cash_including_restricted": 343338, "restricted_cash": 29000}),
     "MFG": ("JPY", {"cash": 62606401}), "MMM": ("USD", {"cash": 5235}),
     "MUFG": ("JPY", {"cash_including_restricted": 90378397, "cash_and_bank_deposits": 90369985,
@@ -466,7 +466,7 @@ for symbol, (currency, values) in CASH_BALANCES.items():
 for symbol in ("BAC", "JPM"):
     if rows[symbol]["statement"]["facts"]["cash"].get("rounding_increment") != 100_000_000:
         raise SystemExit(f"{symbol}: missing restricted-cash source precision")
-for symbol in ("GE", "HDB", "MUFG", "WFC"):
+for symbol in ("GE", "MUFG", "WFC"):
     period = rows[symbol]["statement"]
     if "cash" in period["facts"] or not period.get("cash_gap"):
         raise SystemExit(f"{symbol}: expected a documented cash scope")
