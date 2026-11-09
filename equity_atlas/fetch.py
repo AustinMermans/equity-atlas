@@ -36,8 +36,11 @@ class Cache:
         self.user_agent = os.environ.get("ATLAS_SEC_USER_AGENT", "")
         self.hits = self.downloads = 0
 
-    def get(self, url, ttl_hours=24):
-        key = hashlib.sha256(url.encode()).hexdigest()
+    def get(self, url, ttl_hours=24, *, post_json=None):
+        request_key = url.encode()
+        if post_json is not None:
+            request_key += b"\0POST\0" + post_json
+        key = hashlib.sha256(request_key).hexdigest()
         receipt = self.root / (key + ".json")
         if receipt.exists():
             meta = json.loads(receipt.read_text())
@@ -61,7 +64,9 @@ class Cache:
                         time.sleep(max(0, self.next_sec - time.monotonic()))
                         self.next_sec = time.monotonic() + .28
                 headers = {"User-Agent": self.user_agent if sec else "EquityAtlas/0.1 (private research)"}
-                with urlopen(Request(url, headers=headers), timeout=18) as response:
+                if post_json is not None:
+                    headers.update({"Content-Type": "application/json", "Accept": "application/json, text/event-stream"})
+                with urlopen(Request(url, data=post_json, headers=headers), timeout=18) as response:
                     data = response.read()
                 meta = {"url": url, "retrieved_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                         "sha256": hashlib.sha256(data).hexdigest()}

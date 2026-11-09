@@ -20,6 +20,7 @@ from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
 from .sec_workbook import ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
+from .rendered_10q import ROUTE as RENDERED_ROUTE, periods_from_rendered_10q, rendered_10q_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
 from .market import load_taiwan
@@ -95,6 +96,15 @@ def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, iss
                     routes[kind]=route
         except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
             issues.append(f"Issuer filing copy for {interim['end']} ({route}): {exc}")
+    pending = tuple(kind for kind in missing if kind not in results)
+    if pending and rendered_10q_url(cik, interim):
+        try:
+            parsed = periods_from_rendered_10q(cache, interim, cik, pending)
+            for kind, periods in parsed.items():
+                results[kind] = periods[-1]
+                routes[kind] = RENDERED_ROUTE
+        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+            issues.append(f"SEC rendered interim tables for {interim['end']}: {exc}")
     for kind in missing:
         if kind not in results:
             routes[kind]="unavailable"
@@ -327,6 +337,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
         return bool(r["statement"] and 0 <= (day-date.fromisoformat(r["statement"]["end"])).days <= 465)
     verified=[r for r in sec_rows if r["edgar"].get("metadata")=="verified"]
     latest=[r for r in verified if r["edgar"].get("latest_annual")]
+    expected_interims = [r for r in verified if (interim := r["edgar"].get("latest_interim")) and
+                         interim["end"] > (r["edgar"].get("latest_annual") or {}).get("end", "")]
     coverage={
         "sec_issuers":len(sec_rows), "metadata_verified":len(verified),
         "latest_annual_expected":len(latest),
@@ -341,7 +353,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "latest_annual_regulator_mirror":sum(bool(r["source"]=="FCA 20-F" and r["statement"] and
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
-        "interim_available":sum(bool(r["edgar"].get("quarter") or r["edgar"].get("ytd")) for r in sec_rows),
+        "interim_expected":len(expected_interims),
+        "interim_available":sum(bool(r["edgar"].get("quarter")) for r in expected_interims),
     }
     data={"mode":"public_market" if open_market else "public_fundamentals",
           "policy_version":VERSION,"as_of":str(day),"generated_at":datetime.now(timezone.utc).isoformat(),

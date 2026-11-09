@@ -14,6 +14,7 @@ from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.sec_workbook import PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
+from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -26,6 +27,8 @@ if [r["symbol"] for r in rows]!=sorted({r["symbol"] for r in rows}):
 asof=date.fromisoformat(snap["as_of"])
 fresh=0
 sec_count=0
+interim_expected=0
+quarters=0
 prices=[]
 market=snap.get("market_sources",{})
 if open_market:
@@ -41,6 +44,7 @@ def verify_period(period, row):
     workbook = None
     route = period.get("route")
     interim_copy = None
+    rendered = None
     resolvers = {"issuer_inline": inline_url, "issuer_instance": issuer_instance_url, QUARTER_PDF_ROUTE: quarter_copy_url}
     if route in resolvers:
         report = row["edgar"]["latest_interim"]
@@ -49,6 +53,15 @@ def verify_period(period, row):
         if (not interim_copy or period["report"] != report or
                 row["edgar"]["interim_routes"].get(period["period_kind"]) != route):
             raise SystemExit("Public copy does not match the expected SEC interim filing")
+    if route == RENDERED_ROUTE:
+        report = row["edgar"]["latest_interim"]
+        cik = int(row["id"].removeprefix("sec:"))
+        rendered = rendered_10q_url(cik, report)
+        if (not rendered or period["report"] != report or
+                row["edgar"]["interim_routes"].get(period["period_kind"]) != route):
+            raise SystemExit("Rendered tables do not match the expected SEC interim filing")
+        sections = TABLES if period["period_kind"] == "ytd" else TABLES.keys() - {"cash_flow"}
+        rendered_tables = {table_url(report, section) for section in sections}
     if route in COPY_SOURCES:
         report = row["edgar"]["latest_annual"]
         cik = int(row["id"].removeprefix("sec:"))
@@ -89,6 +102,11 @@ def verify_period(period, row):
             official = (source == interim_copy and url == report["url"] and fact["accession"] == report["accession"]
                         and fact["filed"] == report["filed"] and fact["form"] == report["form"]
                         and bool(locator) and len(fact["sha256"]) == 64)
+        if rendered:
+            official = (source == rendered and url == report["url"] and fact["accession"] == report["accession"]
+                        and fact["filed"] == report["filed"] and fact["form"] == report["form"]
+                        and fact.get("table_url") in rendered_tables and bool(fact.get("locator"))
+                        and len(fact["table_sha256_16"]) == 16 and len(fact["sha256"]) == 64)
         if fact["tag"].startswith("filing_claims:"):
             report = period.get("report")
             cik = int(row["id"].removeprefix("sec:"))
@@ -132,10 +150,17 @@ for row in rows:
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     audit = row.get("edgar", {})
     annual = audit.get("latest_annual")
-    if annual and row["id"].startswith("sec:"):
+    if row["id"].startswith("sec:"):
         cik = int(row["id"].removeprefix("sec:"))
-        if workbook_url(cik, annual) and (row["statement"] or {}).get("filing") != annual["accession"]:
+        if annual and workbook_url(cik, annual) and (row["statement"] or {}).get("filing") != annual["accession"]:
             raise SystemExit(f"Refusing to lose verified annual coverage for {row['symbol']}")
+        interim = audit.get("latest_interim")
+        if (audit.get("metadata") == "verified" and interim and
+                interim["end"] > (annual or {}).get("end", "")):
+            interim_expected += 1
+            quarters += bool(audit.get("quarter"))
+            if rendered_10q_url(cik, interim) and not (audit.get("quarter") and audit.get("ytd")):
+                raise SystemExit(f"Refusing to lose verified interim coverage for {row['symbol']}")
     succession = audit.get("succession")
     if succession:
         cik = int(row["id"].removeprefix("sec:"))
@@ -159,6 +184,9 @@ for source, count in (("Issuer 20-F", "latest_annual_issuer_mirror"), ("FCA 20-F
                       (WORKBOOK_SOURCE, "latest_annual_sec_workbook")):
     if sum(r["source"]==source for r in rows)!=snap["stats"].get(count,0):
         raise SystemExit(f"{source} coverage mismatch")
+if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
+        snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
+    raise SystemExit("Standalone interim coverage mismatch")
 if fresh < .80*sec_count or fresh!=snap["stats"]["fresh"]:
     raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent statements")
 if open_market:

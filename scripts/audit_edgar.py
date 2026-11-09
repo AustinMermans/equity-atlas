@@ -44,4 +44,20 @@ for key, expected in PER_SHARE.items():
     if (fact.get("value"), fact.get("unit")) != expected:
         raise SystemExit(f"HDB {key}: expected {expected}; got {fact}")
     checked += 1
-print(f"Matched {checked} filed values across {len(EXPECTED)} issuers")
+interim = rows["SO"]["edgar"]
+for kind, expected in {
+    "quarter": {"sales": 8843, "net_parent": 2046, "net_nci": 28, "assets": 164204,
+                "book": 42056, "minority": 2750, "da_excluding_nuclear_fuel": 1444},
+    "ytd": {"sales": 24218, "net_parent": 4577, "net_nci": 24, "cfo": 7880, "capex": 10200,
+            "div": 2399, "div_nci": 127, "da_with_accretion": 4809},
+}.items():
+    period = interim.get(kind, {})
+    if period.get("filing") != "0000092122-26-000069" or period.get("currency") != "USD":
+        raise SystemExit(f"SO {kind}: missing the verified Q3 2026 filing")
+    for key, millions in expected.items():
+        if period["facts"].get(key, {}).get("value") != millions * 1000000:
+            raise SystemExit(f"SO {kind}: unexpected {key}")
+        checked += 1
+    if kind == "quarter" and {"cfo", "capex"} & period["facts"].keys():
+        raise SystemExit("SO standalone quarter contains year-to-date cash flow")
+print(f"Matched {checked} filed values across {len(EXPECTED) + 1} issuers")
