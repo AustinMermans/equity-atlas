@@ -42,13 +42,13 @@ def universe(blob, count, floor=None):
         raise ValueError(f"requested {count} names but ranking has {len(parsed)} usable rows")
     return parsed
 
-def source_history(cache, cik, lei, day):
+def source_history(cache, cik, lei, day, sec_ttl_hours=36):
     choices=[]
     issues=[]
     entity=None
     if cik:
         try:
-            obj, meta=cache.json(SEC.format(cik),36)
+            obj, meta=cache.json(SEC.format(cik),sec_ttl_hours)
             entity=obj["entityName"]
             history=from_sec(obj,meta,day,cik)
             if history:
@@ -118,7 +118,16 @@ def list_public(public_csv):
 def make_public(cache, csv_path, out, day):
     public=list_public(csv_path)
     ciks={int(x["cik"]) for x in public.values()}
-    sources=parallel(sorted(ciks),lambda cik:source_history(cache,cik,None,day))
+    # Probe the official route before attempting the entire list. One blocked
+    # source should not generate hundreds of identical requests.
+    probe=320193 if 320193 in ciks else min(ciks)
+    try:
+        doc,_=cache.json(SEC.format(probe),18)
+        if int(doc["cik"])!=probe:
+            raise ValueError("SEC preflight CIK mismatch")
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        raise RuntimeError(f"SEC Company Facts preflight failed: {exc}") from exc
+    sources=parallel(sorted(ciks),lambda cik:source_history(cache,cik,None,day,18))
     rows=[]
     for symbol, entry in sorted(public.items()):
         cik=int(entry["cik"])
@@ -136,7 +145,7 @@ def make_public(cache, csv_path, out, day):
         rows.append(row)
     if not any(r["statement"] for r in rows):
         raise RuntimeError("Public dataset has no qualifying filings; refusing to replace the deployed snapshot")
-    data={"mode":"public_fundamentals","policy_version":VERSION,"as_of":str(day),
+    data={"mode":"public_fundamentals","policy_version":VERSION,"as_of":str(day),"generated_at":datetime.now(timezone.utc).isoformat(),
           "source":"SEC EDGAR company facts; public issuer list is alphabetical and has no rankings or market data.",
           "stats":{"issuers":len(rows),"fresh":sum(bool(r["statement"] and (day-date.fromisoformat(r["statement"]["end"])).days<=465) for r in rows)},
           "rows":rows}

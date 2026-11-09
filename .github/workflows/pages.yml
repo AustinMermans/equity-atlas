@@ -35,7 +35,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Build public filings edition
         env:
-          ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || format('Equity Atlas project https://github.com/{0}/issues', github.repository) }}
+          ATLAS_SEC_USER_AGENT: ${{ vars.ATLAS_SEC_USER_AGENT || 'Equity Atlas research (local prototype)' }}
           BOOTSTRAP: ${{ inputs.bootstrap || 'false' }}
         run: |
           if [ "$BOOTSTRAP" = "true" ]; then
