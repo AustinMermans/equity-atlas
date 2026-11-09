@@ -17,7 +17,6 @@ GOLDMAN = (886982, "0000886982-26-000091")
 MORGAN = (895421, "0000895421-26-000086")
 VISA = (1403161, "0001403161-26-000134")
 CORRECT_EXISTING = {GOLDMAN, MORGAN}
-REVIEW_EXISTING = CORRECT_EXISTING | {AIRBNB, VISA}
 AXP = (4962, "0000004962-26-000080")
 BAC = (70858, "0000070858-26-000157")
 BRK = (1067983, "0001193125-26-083899")
@@ -32,6 +31,8 @@ MUFG = (67088, "0001628280-26-047095")
 PGR = (80661, "0000080661-26-000086")
 SBUX = (829224, "0000829224-25-000114")
 WFC = (72971, "0000072971-26-000133")
+HOLD_UNVERIFIED = CORRECT_EXISTING | {WFC}
+REVIEW_EXISTING = HOLD_UNVERIFIED | {AIRBNB, VISA}
 
 # Match the printed cash captions within the consolidated asset section.
 FACE = {
@@ -100,6 +101,9 @@ HDFC_NOTE = ("disclosed:RestrictedReserveCash", "Note 4 · Restricted reserve ca
 GOLDMAN_UNRESTRICTED = ("disclosed:UnrestrictedCashAndEquivalents", "Credit exposure · Unrestricted cash and equivalents")
 AIRBNB_TITLE = "Supplemental Financial Statement Information - Schedule of Cash, Cash Equivalents and Restricted Cash (Details)"
 AIRBNB_QUERY = "Cash cash equivalents restricted cash funds held on behalf of customers"
+WFC_QUERY = "Nature of Restrictions on Cash and Cash Equivalents"
+WFC_TITLE = f"Regulatory Capital Requirements and Other Restrictions, {WFC_QUERY} (Details)"
+NOTE_REPORTS = {HDFC: (HDFC_TITLE, "R86.htm"), AIRBNB: (AIRBNB_TITLE, "R45.htm"), WFC: (WFC_TITLE, "R177.htm")}
 VISA_QUERY = "U.S. litigation escrow Customer collateral Prepaid expenses and other current assets"
 VISA_NOTE_END = (
     "The Company reconciles cash, cash equivalents, restricted cash and restricted cash equivalents reported on the "
@@ -107,6 +111,11 @@ VISA_NOTE_END = (
     "of cash flows as follows:"
 )
 NOTE_FIELDS = {
+    WFC: {
+        "restricted_cash_reserves": ("disclosed:ForeignCentralBankReserveCash", "Reserve balance for non-U.S. central banks"),
+        "cash_held_for_customers": ("disclosed:SegregatedBrokerageCash",
+                                    "Segregated for benefit of brokerage customers under federal and other brokerage regulations"),
+    },
     HDFC: {"restricted_cash": HDFC_NOTE},
     GOLDMAN: {"cash": GOLDMAN_UNRESTRICTED},
     AIRBNB: {"cash_held_for_customers": ("disclosed:CashHeldForCustomers",
@@ -117,11 +126,10 @@ NOTE_FIELDS = {
         "restricted_cash_in_other_assets": ("disclosed:RestrictedCashInOtherCurrentAssets", "Prepaid expenses and other current assets"),
     },
 }
-NET = {AXP, BAC, BRK, CITI, CHUBB, GEV, HDFC, JPM, MORGAN}
+NET = {AXP, BAC, BRK, CITI, CHUBB, GEV, HDFC, JPM, MORGAN, WFC}
 GAPS = {
     GE: "The balance-sheet cash line includes restricted cash. The separately reported run-off insurance cash sits in other assets.",
     MUFG: "The cash-flow total includes restricted amounts held both in bank deposits and in other assets.",
-    WFC: "The filing reports cash and restricted cash together. The cash-flow total and the bank balance-sheet lines have different scopes.",
 }
 PROFILED = FACE.keys() | TAGGED.keys() | NOTE_FIELDS.keys()
 PINNED = PROFILED | GAPS.keys()
@@ -134,7 +142,7 @@ def rule_key(cik, report):
 
 
 def cash_requires_scope_review(cik, report):
-    return rule_key(cik, report) in CORRECT_EXISTING
+    return rule_key(cik, report) in HOLD_UNVERIFIED
 
 
 def goldman_pdf(report):
@@ -148,7 +156,7 @@ def note_source(key, cik, report, part):
     if key == VISA:
         return (part["source"] == ENDPOINT and part.get("table_url") == report["url"] and
                 bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
-    filename = {HDFC: "R86.htm", AIRBNB: "R45.htm"}.get((cik, report["accession"]))
+    filename = NOTE_REPORTS[key][1] if key == (cik, report["accession"]) else None
     return valid_table_source(part, report, filename)
 
 
@@ -188,8 +196,14 @@ def cash_facts(cik, report, period, evidence):
         if result["restricted_cash"]["value"] % increment:
             raise ValueError("Cash restriction value conflicts with the filed precision")
         result["restricted_cash"]["rounding_increment"] = increment
+    if key == WFC:
+        parts = [inputs[field] for field in note]
+        result["restricted_cash"] = {
+            **parts[0], "tag": TAG, "value": sum(part["value"] for part in parts), "components": parts,
+            "locator": "Cash restrictions · Central-bank reserves and segregated brokerage cash",
+        }
     if key in NET:
-        restricted = inputs["restricted_cash"]
+        restricted = result["restricted_cash"]
         if key == HDFC:
             filed = facts[BROAD]
             if tuple(filed[k] for k in keys) != scope or type(filed["value"]) is not int or not 0 <= filed["value"] <= assets["value"]:
@@ -202,7 +216,7 @@ def cash_facts(cik, report, period, evidence):
             raise ValueError("Restricted cash exceeds the reported inclusive balance")
         result["cash"] = {**combined, "tag": TAG, "value": value,
                           "locator": "Cash and cash equivalents after removing the disclosed restricted amount",
-                          "components": [combined, {**restricted, "sign": -1}]}
+                          "components": [combined, *({**part, "sign": -1} for part in restricted["components"])]}
         if key in RESTRICTED_ROUNDING:
             result["cash"]["rounding_increment"] = RESTRICTED_ROUNDING[key]
     if key == GOLDMAN:
@@ -238,6 +252,12 @@ def cash_facts(cik, report, period, evidence):
         if (any(tuple(part[k] for k in keys) != scope for part in deposits)
                 or sum(part["value"] for part in deposits) != result[total_field]["value"]):
             raise ValueError("Cash and bank deposit lines do not reconcile")
+    if key == WFC:
+        # The cash-flow total excludes time deposits carried in the second balance-sheet line.
+        due, deposits = (facts[field] for field in ("cash_due_from_banks", "interest_bearing_deposits_at_banks"))
+        if (any(tuple(part[k] for k in keys) != scope for part in (due, deposits))
+                or not due["value"] <= inputs[BROAD]["value"] <= due["value"] + deposits["value"]):
+            raise ValueError("Wells Fargo cash is outside the filed bank-deposit bounds")
     if key == MUFG:
         combined, deposits = inputs[BROAD], inputs["cash_and_bank_deposits"]
         other = combined["value"] - deposits["value"]
@@ -323,13 +343,14 @@ def enrich_cash(cache, obj, meta, cik, report, period):
                  and re.search(rf"^\$ in millions +{year} +{year-1}\b", page, re.M))
         match, = re.findall(r"^Cash and Cash Equivalents +\$([\d,]+) +\$[\d,]+\b", risk, re.M)
         parts["cash"] = part(*GOLDMAN_UNRESTRICTED, scaled(match.replace(",", ""), 1_000_000), receipt)
-    if key in {AIRBNB, VISA}:
-        query = AIRBNB_QUERY if key == AIRBNB else VISA_QUERY
+    if key in {AIRBNB, VISA, WFC}:
+        query = {AIRBNB: AIRBNB_QUERY, VISA: VISA_QUERY, WFC: WFC_QUERY}[key]
         tables, digests, receipt = filing_tables(cache, cik, report, query)
         year = report["end"][:4]
-        if key == AIRBNB:
-            pinned = "R45.htm" if key == (cik, report["accession"]) else None
-            table, = (t for t in tables if t["source"] == "xbrl report" and t["title"] == AIRBNB_TITLE
+        if key in NOTE_REPORTS:
+            title, filename = NOTE_REPORTS[key]
+            pinned = filename if key == (cik, report["accession"]) else None
+            table, = (t for t in tables if t["source"] == "xbrl report" and t["title"] == title
                       and t["units"] == "USD ($) $ in Millions" and table_belongs_to_filing(t["url"], report, pinned))
             heading, expected_end = f"Dec. 31, {year}", f"{year}-12-31"
         else:
@@ -339,8 +360,22 @@ def enrich_cash(cache, obj, meta, cik, report, period):
         if period["currency"] != "USD" or report["end"] != expected_end or table["columns"].count(heading) != 1:
             raise ValueError("Cash note does not match the filing currency and fiscal year")
         index = table["columns"].index(heading)
+        rows = table["rows"]
+        if key == WFC:
+            amounts = {}
+            for member, amount_row in zip(rows[::2], rows[1::2], strict=True):
+                if (not member[0].endswith(" [Member]") or any(x is not None for x in member[1:])
+                        or amount_row[0] != "Restricted cash equivalents"):
+                    raise ValueError("Unexpected dimension in the Wells Fargo cash restriction table")
+                label = member[0].removesuffix(" [Member]")
+                if label in amounts:
+                    raise ValueError("Repeated cash restriction dimension")
+                amounts[label] = amount_row[1:]
+            if amounts.keys() != {label for _, label in NOTE_FIELDS[key].values()}:
+                raise ValueError("Wells Fargo cash restriction dimensions changed")
+            rows = [[label, *values] for label, values in amounts.items()]
         for field, (tag, label) in NOTE_FIELDS[key].items():
-            amount, = (r[index] for r in table["rows"] if r[0] == label and type(r[index]) in (int, float))
+            amount, = (r[index] for r in rows if r[0] == label and type(r[index]) in (int, float))
             parts[field] = part(tag, label, scaled(amount, 1_000_000), receipt,
                                 table_url=table["url"], table_sha256_16=digests.get(table["url"], ""))
     result = cash_facts(cik, report, period, evidence)

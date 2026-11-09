@@ -31,6 +31,7 @@ const fieldNames={
  cash_unreconciled:'Reported cash pending scope reconciliation',
  cash_held_for_customers:'Cash held for customers',
  restricted_cash_litigation:'Restricted cash in litigation escrow',
+ restricted_cash_reserves:'Restricted central-bank reserves',
  restricted_cash_reported:'Disclosed segregated cash, rounded',
  restricted_cash_in_other_assets:'Restricted cash in other assets',
  cash_and_bank_deposits:'Cash and deposits at banks',

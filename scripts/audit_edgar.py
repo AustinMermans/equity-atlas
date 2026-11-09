@@ -462,7 +462,8 @@ CASH_BALANCES = {
     "V": ("USD", {"cash": 12938, "cash_including_restricted": 19118, "restricted_cash": 6180,
                   "cash_held_for_customers": 4349, "restricted_cash_litigation": 628,
                   "restricted_cash_in_other_assets": 1203}),
-    "WFC": ("USD", {"cash_including_restricted": 172593}),
+    "WFC": ("USD", {"cash": 171249, "cash_including_restricted": 172593, "restricted_cash": 1344,
+                    "restricted_cash_reserves": 259, "cash_held_for_customers": 1085}),
 }
 for symbol, (currency, values) in CASH_BALANCES.items():
     facts = rows[symbol]["statement"]["facts"]
@@ -476,7 +477,7 @@ for symbol in ("BAC", "JPM"):
         raise SystemExit(f"{symbol}: missing restricted-cash source precision")
 if rows["GS"]["statement"]["facts"]["restricted_cash_reported"].get("rounding_increment") != 10_000_000:
     raise SystemExit("GS: missing segregated-cash source precision")
-for symbol in ("GE", "MUFG", "WFC"):
+for symbol in ("GE", "MUFG"):
     period = rows[symbol]["statement"]
     if "cash" in period["facts"] or not period.get("cash_gap"):
         raise SystemExit(f"{symbol}: expected a documented cash scope")
