@@ -53,7 +53,7 @@ if [r["symbol"] for r in rows]!=sorted({r["symbol"] for r in rows}):
 asof=date.fromisoformat(snap["as_of"])
 fresh=0
 sec_count=0
-hkex_covered=0
+hkex_covered=set()
 interim_expected=0
 quarters=0
 capex_profiles=0
@@ -362,13 +362,16 @@ for row in rows:
         raise SystemExit("Valuation without an approved market input")
     if row["id"].startswith("hkex:"):
         try:
-            verified = (row["id"] == hkex.ROW_ID and row["symbol"] == hkex.SYMBOL and row["source"] == hkex.SOURCE
-                        and hkex.verified_statement(row["statement"], row["exchange_filing"], asof))
+            exchange = row["exchange_filing"]
+            listing = hkex.listing_for(exchange["former_cik"], asof)
+            verified = (listing and row["id"] == listing.row_id and row["symbol"] == listing.symbol
+                        and row["source"] == hkex.SOURCE
+                        and hkex.verified_statement(row["statement"], exchange, listing, asof))
         except (KeyError, TypeError, ValueError):
             verified = False
         if not verified:
             raise SystemExit(f"Missing or unverified HKEX annual report for {row['symbol']}")
-        hkex_covered += 1
+        hkex_covered.add(row["id"])
     elif row["statement"]:
         verify_period(row["statement"], row)
         if "annual_exhibits_profiled" in snap["stats"] and row["id"].startswith("sec:"):
@@ -477,7 +480,7 @@ for row in rows:
         if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
             raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
-    if row["id"] == hkex.ROW_ID and row["balance_check"] != balance_check(row["statement"]):
+    if row["id"].startswith("hkex:") and row["balance_check"] != balance_check(row["statement"]):
         raise SystemExit("HKEX balance-sheet reconciliation does not match published facts")
     audit = row.get("edgar", {})
     annual = audit.get("latest_annual")
@@ -511,7 +514,9 @@ for row in rows:
     reviews = audit.get("amendment_reviews", [])
     if reviews:
         statement, annual = row["statement"], audit["latest_annual"]
-        if (statement["end"] != annual["end"] or reviews[-1]["accession"] != annual["accession"]
+        if row["id"].startswith("hkex:"):
+            statement = row["exchange_filing"].get("archived_annual") or {}
+        if (statement.get("end") != annual["end"] or reviews[-1]["accession"] != annual["accession"]
                 or reviews[-1]["url"] != annual["url"] or
                 any(REVIEWED_AMENDMENTS.get((statement["filing"], r["accession"])) != r["scope"] for r in reviews)):
             raise SystemExit("Amendment review does not match the reported accessions")
@@ -597,13 +602,14 @@ if "interim_expected" in snap["stats"] and (interim_expected, quarters) != (
         snap["stats"]["interim_expected"], snap["stats"]["interim_available"]):
     raise SystemExit("Standalone interim coverage mismatch")
 if "hkex_annual_expected" in snap["stats"]:
-    expected = int(any(r["symbol"] == hkex.SYMBOL for r in rows) and hkex.supported(hkex.CIK, asof))
-    if hkex_covered != expected or (hkex_covered, expected) != (
+    symbols = {r["symbol"] for r in rows}
+    expected = {p.row_id for p in hkex.LISTINGS.values() if p.symbol in symbols and hkex.listing_for(p.cik, asof)}
+    if hkex_covered != expected or (len(hkex_covered), len(expected)) != (
             snap["stats"]["hkex_annual_covered"], snap["stats"]["hkex_annual_expected"]):
         raise SystemExit("HKEX annual filing coverage mismatch")
 elif hkex_covered:
     raise SystemExit("Missing HKEX annual filing coverage statistics")
-if fresh < .80*sec_count or fresh + hkex_covered != snap["stats"]["fresh"]:
+if fresh < .80*sec_count or fresh + len(hkex_covered) != snap["stats"]["fresh"]:
     raise SystemExit(f"Refusing to deploy coverage regression: {fresh}/{sec_count} recent SEC statements")
 if open_market:
     prices.sort(key=lambda q:q["rank"])
@@ -613,5 +619,5 @@ if open_market:
         raise SystemExit("Public Taiwan universe incomplete or misranked")
     if snap["stats"]["metadata_verified"] < .95*sec_count:
         raise SystemExit("Insufficient SEC submissions coverage")
-print(f"Public artifact verified: {fresh}/{sec_count} recent SEC statements, {hkex_covered} HKEX annual, "
+print(f"Public artifact verified: {fresh}/{sec_count} recent SEC statements, {len(hkex_covered)} HKEX annual, "
       f"{len(prices)} exchange prices, dated {asof}")

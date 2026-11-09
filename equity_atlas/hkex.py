@@ -1,5 +1,6 @@
-"""Discover and reconcile China Mobile's audited Hong Kong annual statements."""
+"""Discover and reconcile audited HKEX reports for former SEC registrants."""
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from html.parser import HTMLParser
 import math
@@ -9,26 +10,48 @@ from urllib.parse import urljoin
 from .facts import EPS_FIELDS, STOCK
 from .issuer_20f import column, pdf_pages
 
-CIK = 1117795
-ROW_ID = "hkex:00941"
-SYMBOL = "0941.HK"
-SUSPENDED = "2022-09-14"
-FORM_15F = "https://www.sec.gov/Archives/edgar/data/1117795/000119312522244231/d403146d15f15d.htm"
-INDEX = ("https://www1.hkexnews.hk/search/titlesearch.xhtml?category=0&lang=EN&market=SEHK&stockId=2247"
-         "&t1code=40000&t2Gcode=-1&t2code=40100&from=20220914&to=")
+@dataclass(frozen=True)
+class Listing:
+    cik: int
+    stock_code: str
+    stock_id: int
+    symbol: str
+    name: str
+    suspended: str
+    form_15f: str
+    sales_basis: str
+
+    @property
+    def row_id(self):
+        return f"hkex:{self.stock_code}"
+
+    def provenance(self):
+        return {"former_cik": self.cik, "sec_reporting_suspended": self.suspended, "sec_exit_url": self.form_15f}
+
+
+CHINA_MOBILE = Listing(
+    1117795, "00941", 2247, "0941.HK", "China Mobile Limited", "2022-09-14",
+    "https://www.sec.gov/Archives/edgar/data/1117795/000119312522244231/d403146d15f15d.htm",
+    "china_mobile_hkex_operating_revenue",
+)
+PETROCHINA = Listing(
+    1108329, "00857", 2038, "0857.HK", "PetroChina Company Limited", "2024-02-05",
+    "https://www.sec.gov/Archives/edgar/data/1108329/000094787124000089/ss2990214_15f12b.htm",
+    "petrochina_hkex_ifrs_revenue",
+)
+LISTINGS = {listing.cik: listing for listing in (CHINA_MOBILE, PETROCHINA)}
+HOST = "https://www1.hkexnews.hk"
 SOURCE = "HKEX annual report"
 ROUTE = "hkex_annual"
-PROFILE = {"former_cik": CIK, "sec_reporting_suspended": SUSPENDED, "sec_exit_url": FORM_15F}
 FORM = "HKEX Annual Report"
-BASIS = "china_mobile_hkex_operating_revenue"
 DOCUMENT = re.compile(r"/listedco/listconews/sehk/(\d{4})/(\d{4})/(\d{13})\.pdf")
 MILLION = 1_000_000
-STOCK_FIELDS = STOCK | {"lease_liabilities_separate", "cash_beginning", "debt_beginning"}
+STOCK_FIELDS = STOCK | {"lease_liabilities_separate", "cash_beginning", "debt_beginning", "asset_retirement_obligations"}
 INVESTMENT_LABEL = "Payment for property, plant and equipment, other intangible assets and non-current assets"
 BORROWING_LABEL = "Bank and other borrowings"
 PROCEEDS_LABEL = "Proceeds received from bank and other borrowings"
 REPAYMENTS_LABEL = "Repayment of bank and other borrowings"
-FIELD_LABELS = {
+MOBILE_FIELDS = {
     "sales": "Consolidated income · Revenue from principal and other businesses",
     "ebit": "Consolidated income · Profit from operations",
     "pretax": "Consolidated income · Profit before taxation",
@@ -67,27 +90,91 @@ DEBT_MOVEMENT_FIELDS = {
 }
 
 
-def supported(cik, day):
-    return cik == CIK and day >= date.fromisoformat(SUSPENDED)
+PETRO_INCOME = {
+    "sales": "REVENUE",
+    "ebit": "PROFIT FROM OPERATIONS",
+    "pretax": "PROFIT BEFORE INCOME TAX EXPENSE",
+    "tax": "INCOME TAX EXPENSE",
+    "net_consolidated": "PROFIT FOR THE YEAR",
+}
+PETRO_POSITION = {
+    "cash": "Cash and cash equivalents",
+    "book": "TOTAL EQUITY ATTRIBUTABLE TO OWNERS OF THE COMPANY",
+    "minority": "NON-CONTROLLING INTERESTS",
+    "total_equity": "TOTAL EQUITY",
+    "debt_current_total": "Short-term borrowings",
+    "debt_noncurrent": "Long-term borrowings",
+    "asset_retirement_obligations": "Asset retirement obligations",
+}
+PETRO_OPERATIONS = {
+    "cfo": "NET CASH FLOWS FROM OPERATING ACTIVITIES",
+    "da_with_impairment": "Depreciation, depletion and amortisation",
+}
+PETRO_CASH_FLOWS = {
+    "capex": "Capital expenditures",
+    "capex_mixed_outflow": "Acquisition of intangible assets and other non-current assets",
+    "cash_investing": "NET CASH FLOWS USED FOR INVESTING ACTIVITIES",
+    "cash_financing": "NET CASH FLOWS USED FOR FINANCING ACTIVITIES",
+    "cash_fx_effect": "TRANSLATION OF FOREIGN CURRENCY",
+    "cash_beginning": "Cash and cash equivalents at the beginning of the year",
+    "div": "Dividends paid to owners of the Company",
+    "div_nci": "Dividends paid to non-controlling interests",
+    "st_issued": "Increase in short-term borrowings",
+    "lt_issued": "Increase in long-term borrowings",
+    "st_repaid": "Repayments of short-term borrowings",
+    "lt_repaid": "Repayments of long-term borrowings",
+}
+PETRO_FIELDS = {
+    **{key: f"IFRS consolidated income · {label}" for key, label in PETRO_INCOME.items()},
+    **{key: f"IFRS consolidated financial position · {label}" for key, label in PETRO_POSITION.items()},
+    **{key: f"IFRS consolidated cash flows · {label}" for key, label in (PETRO_OPERATIONS | PETRO_CASH_FLOWS).items()},
+    "net": "IFRS consolidated income · Profit attributable to owners",
+    "net_parent": "IFRS consolidated income · Profit attributable to owners",
+    "net_nci": "IFRS consolidated income · Profit attributable to non-controlling interests",
+    "eps_basic": "IFRS consolidated income · Basic and diluted earnings per share",
+    "eps_diluted": "IFRS consolidated income · Basic and diluted earnings per share",
+    "assets": "IFRS consolidated financial position · Current and non-current assets",
+    "liabilities": "IFRS consolidated financial position · Current and non-current liabilities",
+    "lease_liabilities_separate": "IFRS consolidated financial position · Current and non-current lease liabilities",
+    "debt_current": "IFRS borrowing note · Current portion of long-term borrowings",
+    "short_borrow": "IFRS borrowing note · Short-term borrowings excluding current maturities of long-term debt",
+    "debt_total": "IFRS consolidated financial position and borrowing note · Total borrowings",
+    "bank_borrowings_proceeds": "IFRS consolidated cash flows · Short- and long-term borrowing proceeds",
+    "bank_borrowings_repayments": "IFRS consolidated cash flows · Short- and long-term borrowing repayments",
+    "debt_net": "IFRS consolidated cash flows · Borrowing proceeds less repayments",
+    "segment_capital_expenditures": "IFRS operating segments note · Capital expenditures",
+    "impairment_ppe": "IFRS operating segments note · Impairment losses of property, plant and equipment",
+    "da": "IFRS consolidated cash flows · Depreciation, depletion and amortisation less disclosed PP&E impairment",
+}
 
 
-def index_url(asof):
-    return INDEX + asof.strftime("%Y%m%d")
+def listing_for(cik, day):
+    listing = LISTINGS.get(cik)
+    if listing and day >= date.fromisoformat(listing.suspended):
+        return listing
+    return None
+
+
+def index_url(listing, asof):
+    start = date.fromisoformat(listing.suspended)
+    return (f"{HOST}/search/titlesearch.xhtml?category=0&lang=EN&market=SEHK&stockId={listing.stock_id}"
+            f"&t1code=40000&t2Gcode=-1&t2code=40100&from={start:%Y%m%d}&to={asof:%Y%m%d}")
 
 
 def document_day(url):
-    if not isinstance(url, str) or not url.startswith("https://www1.hkexnews.hk/"):
+    if not isinstance(url, str) or not url.startswith(HOST + "/"):
         return None
-    match = DOCUMENT.fullmatch(url.removeprefix("https://www1.hkexnews.hk"))
+    match = DOCUMENT.fullmatch(url.removeprefix(HOST))
     if match and match[3].startswith(match[1] + match[2]):
         return datetime.strptime(match[1] + match[2], "%Y%m%d").date()
     return None
 
 
 class AnnualIndex(HTMLParser):
-    def __init__(self, asof):
+    def __init__(self, listing, asof):
         super().__init__()
         self.asof = asof
+        self.stock_code = listing.stock_code
         self.filings = set()
         self.row = None
 
@@ -97,7 +184,7 @@ class AnnualIndex(HTMLParser):
         if tag == "a" and self.row is not None:
             path = dict(attrs).get("href", "")
             if DOCUMENT.fullmatch(path):
-                self.row[1].append(urljoin(INDEX, path))
+                self.row[1].append(urljoin(HOST, path))
 
     def handle_data(self, data):
         if self.row is not None:
@@ -109,23 +196,23 @@ class AnnualIndex(HTMLParser):
         chunks, links = self.row
         self.row = None
         text = " ".join(" ".join(chunks).split())
-        title = re.search(r"\[Annual Report\]\s+Annual Report (\d{4})\b", text)
-        if not title or not re.search(r"Stock Code:\s+00941\b", text):
+        title = re.search(r"\[Annual Report\]\s+(?:Annual Report (\d{4})|(\d{4}) Annual Report)\b", text, re.I)
+        if not title or not re.search(rf"Stock Code:\s+{self.stock_code}\b", text):
             return
         release = re.search(r"Release Time:\s+(\d{2}/\d{2}/\d{4})", text)
         if release is None or len(links) != 1:
             raise ValueError("Missing unique HKEX annual report URL or release date")
         url, = links
         filed = datetime.strptime(release[1], "%d/%m/%Y").date()
-        year = int(title[1])
+        year = int(title[1] or title[2])
         if document_day(url) != filed or filed <= date(year, 12, 31):
             raise ValueError("Inconsistent HKEX annual report date")
         if filed <= self.asof:
             self.filings.add((year, filed, url))
 
 
-def annual_document(raw, asof):
-    index = AnnualIndex(asof)
+def annual_document(raw, listing, asof):
+    index = AnnualIndex(listing, asof)
     index.feed(raw.decode("utf-8"))
     index.close()
     if not index.filings:
@@ -177,6 +264,16 @@ def borrowing_rollforward(pages, year):
 
 def reconciles(facts):
     v = {key: fact["value"] for key, fact in facts.items()}
+    if "debt_current_total" in v and (
+            v["short_borrow"] + v["debt_current"] != v["debt_current_total"]
+            or v["debt_current_total"] + v["debt_noncurrent"] != v["debt_total"]
+            or v["st_issued"] + v["lt_issued"] != v["bank_borrowings_proceeds"]
+            or v["st_repaid"] + v["lt_repaid"] != v["bank_borrowings_repayments"]
+            or v["da"] + v["impairment_ppe"] != v["da_with_impairment"]
+            or any(v[key] < 0 for key in ("capex", "asset_retirement_obligations", "segment_capital_expenditures",
+                                          "impairment_ppe", "da", "short_borrow", "debt_current", "debt_noncurrent",
+                                          "st_issued", "lt_issued", "st_repaid", "lt_repaid"))):
+        return False
     return (
         v["assets"] == v["liabilities"] + v["total_equity"]
         and v["total_equity"] == v["book"] + v["minority"]
@@ -192,14 +289,10 @@ def reconciles(facts):
     )
 
 
-def read_annual(blob, receipt, report):
-    year, filed, url = report
-    if receipt["url"] != url or document_day(url) != filed:
-        raise ValueError("HKEX annual report receipt does not match the discovered filing")
-    pages = pdf_pages(blob)
+def china_mobile_amounts(pages, year):
     cover = " ".join(pages[0].split())
-    if not all(k in cover for k in (f"Annual Report {year}", "China Mobile Limited", "941 (HKD Counter)")):
-        raise ValueError("HKEX PDF cover does not match the selected issuer and year")
+    if not all(k in cover for k in (f"Annual Report {year}", CHINA_MOBILE.name, "941 (HKD Counter)")):
+        raise ValueError("HKEX PDF cover does not match China Mobile and the selected year")
 
     income_title = "consolidated statement of comprehensive income"
     cash_title = "consolidated statement of cash flows"
@@ -259,24 +352,116 @@ def read_annual(blob, receipt, report):
             "bank_borrowings_repayments": -read(financing, REPAYMENTS_LABEL),
         }
 
+    prior, current = amounts(1), amounts(0)
+    if (movement["opening"], movement["proceeds"], movement["repayments"], movement["closing"]) != (
+            prior["debt_total"], current["bank_borrowings_proceeds"], current["bank_borrowings_repayments"], current["debt_total"]):
+        raise ValueError("HKEX financing note differs from the borrowing and cash-flow statements")
+    current.update(debt_beginning=movement["opening"], debt_acquired=movement["acquired"],
+                   debt_other_noncash=movement["other_noncash"])
+    return prior, current
+
+
+def petrochina_amounts(pages, year):
+    if "PETROCHINA COMPANY LIMITED" not in pages[0] or "ANNUAL REPORT" not in pages[0]:
+        raise ValueError("HKEX PDF cover does not identify PetroChina")
+    opinion, = (i for i, p in enumerate(pages) if f"as at December 31, {year}" in p and
+                "to the shareholders of PetroChina Company Limited" in p and
+                "in accordance with IFRS Accounting Standards as issued by the International Accounting Standards" in p)
+    ifrs = pages[opinion + 1:]
+
+    def page(heading, date_pattern):
+        result, = (p for p in ifrs if heading in map(str.strip, p.splitlines()) and
+                   "(All amounts in RMB millions unless otherwise stated)" in p and date_pattern in p
+                   and re.search(rf"(?m)^ *(?:Notes +)?{year} +{year - 1} *\n +RMB +RMB|"
+                                 rf"^ *(?:Notes +)?31, {year} +31, {year - 1} *\n +RMB +RMB", p))
+        return result
+
+    date_marker = f"December 31, {year}"
+    income = page("CONSOLIDATED STATEMENT OF COMPREHENSIVE INCOME", date_marker)
+    position = page("CONSOLIDATED STATEMENT OF FINANCIAL POSITION", date_marker)
+    operations = page("CONSOLIDATED STATEMENT OF CASH FLOWS", date_marker)
+    financing = page("CONSOLIDATED STATEMENT OF CASH FLOWS (CONTINUED)", date_marker)
+    attribution = income.split("PROFIT FOR THE YEAR ATTRIBUTABLE TO:", 1)[1].split(
+        "TOTAL COMPREHENSIVE INCOME FOR THE YEAR ATTRIBUTABLE TO:", 1)[0]
+    eps = re.sub(r"PER SHARE ATTRIBUTABLE TO OWNERS\s*\n\s*OF THE COMPANY \(RMB\)",
+                 "PER SHARE ATTRIBUTABLE TO OWNERS OF THE COMPANY (RMB)", income)
+    note, = (p for p in ifrs if re.search(r"(?m)^ *\d+ +BORROWINGS *$", p)
+             and "NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS" in p)
+    note = re.split(r"(?m)^ *\d+ +BORROWINGS *$", note, maxsplit=1)[1]
+    note = re.sub(r"(excluding current portion of long-term)\s*\n\s*borrowings", r"\1 borrowings", note)
+    note_period = rf"(?m)^ +December 31, {year} +December 31, {year - 1} *\n +RMB +RMB"
+    if len(re.findall(note_period, note)) != 2:
+        raise ValueError("Unexpected PetroChina borrowing note dates or units")
+
+    def segment_amounts(fiscal_year):
+        segment, = (p for p in ifrs if re.search(rf"(?m)^ *31, {fiscal_year} +Energy", p)
+                    and "Profit/(loss) from operations" in p and "Capital expenditures" in p)
+        segment = re.sub(r"Including: Impairment\s*\n\s*losses of property, plant\s*\n\s*and equipment",
+                         "Impairment losses of property, plant and equipment", segment)
+
+        def total(label):
+            parts = [column(segment, label, 6, column_index=i) for i in range(6)]
+            if sum(parts[:-1]) != parts[-1]:
+                raise ValueError(f"PetroChina segment amounts do not reconcile for {label}")
+            return parts[-1]
+
+        return total("Capital expenditures"), -total("Impairment losses of property, plant and equipment")
+
+    def amounts(index):
+        def read(table, label):
+            return column(table, label, 2, column_index=index)
+
+        v = {key: read(table, label) for table, fields in (
+            (income, PETRO_INCOME), (position, PETRO_POSITION),
+            (operations, PETRO_OPERATIONS), (financing, PETRO_CASH_FLOWS),
+        ) for key, label in fields.items()}
+        for key in ("tax", "capex", "capex_mixed_outflow", "div", "div_nci", "st_repaid", "lt_repaid"):
+            v[key] = -v[key]
+        v["net"] = v["net_parent"] = read(attribution, "Owners of the Company")
+        v["net_nci"] = read(attribution, "Non-controlling interests")
+        v["eps_basic"] = v["eps_diluted"] = read(eps, "BASIC AND DILUTED EARNINGS PER SHARE ATTRIBUTABLE TO OWNERS OF THE COMPANY (RMB)")
+        v["assets"] = read(position, "TOTAL CURRENT ASSETS") + read(position, "TOTAL NON-CURRENT ASSETS")
+        v["liabilities"] = read(position, "TOTAL CURRENT LIABILITIES") + read(position, "TOTAL NON-CURRENT LIABILITIES")
+        v["lease_liabilities_separate"] = sum(column(position, "Lease liabilities", 2, i, index) for i in range(2))
+        v["short_borrow"] = read(note, "Short-term borrowings excluding current portion of long-term borrowings")
+        v["debt_current"] = read(note, "Current portion of long-term borrowings")
+        v["debt_total"] = v["debt_current_total"] + v["debt_noncurrent"]
+        v["bank_borrowings_proceeds"] = v["st_issued"] + v["lt_issued"]
+        v["bank_borrowings_repayments"] = v["st_repaid"] + v["lt_repaid"]
+        v["segment_capital_expenditures"], v["impairment_ppe"] = segment_amounts(year - index)
+        v["da"] = v["da_with_impairment"] - v["impairment_ppe"]
+        categories = ("Bank loans", "Corporate debentures", "Medium-term notes", "Other loans")
+        if (v["debt_total"] != sum(read(note, label) for label in categories)
+                or v["debt_noncurrent"] != read(note, "Long-term borrowings")
+                or v["cash"] != read(financing, "Cash and cash equivalents at the end of the year")
+                or v["da_with_impairment"] != -read(income, "Depreciation, depletion and amortisation")):
+            raise ValueError("PetroChina borrowing, cash or depreciation differs between audited statements")
+        return v
+
+    return amounts(1), amounts(0)
+
+
+def field_labels(listing, latest):
+    if listing == PETROCHINA:
+        return PETRO_FIELDS
+    return (MOBILE_FIELDS | DEBT_MOVEMENT_FIELDS) if latest else MOBILE_FIELDS
+
+
+def read_annual(blob, receipt, report, listing):
+    year, filed, url = report
+    if receipt["url"] != url or document_day(url) != filed:
+        raise ValueError("HKEX annual report receipt does not match the discovered filing")
+    pages = pdf_pages(blob)
+    parse = {CHINA_MOBILE: china_mobile_amounts, PETROCHINA: petrochina_amounts}[listing]
+    prior, current = parse(pages, year)
+    if current["cash_beginning"] != prior["cash"]:
+        raise ValueError("HKEX opening cash does not match the comparative balance sheet")
+
     history = []
-    for index in (1, 0):
-        fiscal_year = year - index
+    for fiscal_year, values in ((year - 1, prior), (year, current)):
         start, end = f"{fiscal_year}-01-01", f"{fiscal_year}-12-31"
-        values = amounts(index)
         values["debt_net"] = values["bank_borrowings_proceeds"] - values["bank_borrowings_repayments"]
-        labels = FIELD_LABELS
-        if index == 0:
-            prior = history[0]["facts"]
-            before = prior["debt_total"]["value"] / MILLION
-            if values["cash_beginning"] * MILLION != prior["cash"]["value"]:
-                raise ValueError("HKEX opening cash does not match the comparative balance sheet")
-            if (movement["opening"], movement["proceeds"], movement["repayments"], movement["closing"]) != (
-                    before, values["bank_borrowings_proceeds"], values["bank_borrowings_repayments"], values["debt_total"]):
-                raise ValueError("HKEX financing note differs from the borrowing and cash-flow statements")
-            values.update(debt_beginning=before, debt_acquired=movement["acquired"],
-                          debt_other_noncash=movement["other_noncash"])
-            labels = {**labels, **DEBT_MOVEMENT_FIELDS}
+        labels = field_labels(listing, fiscal_year == year)
         facts = {
             key: {"value": value if key in EPS_FIELDS else round(value * MILLION),
                   "unit": "CNY/shares" if key in EPS_FIELDS else "CNY",
@@ -289,21 +474,21 @@ def read_annual(blob, receipt, report):
             raise ValueError("HKEX consolidated statements do not reconcile")
         history.append({
             "period_kind": "annual", "end": end, "start": start, "currency": "CNY", "accounting": "IFRS",
-            "filing": url, "route": ROUTE, "sales_basis": BASIS, "facts": facts, "conflicts": [],
+            "filing": url, "route": ROUTE, "sales_basis": listing.sales_basis, "facts": facts, "conflicts": [],
         })
     return history
 
 
-def load_annual(cache, asof):
-    index, index_receipt = cache.get(index_url(asof), 24)
-    report = annual_document(index, asof)
+def load_annual(cache, listing, asof):
+    index, index_receipt = cache.get(index_url(listing, asof), 24)
+    report = annual_document(index, listing, asof)
     blob, receipt = cache.get(report[2], 8760)
-    return read_annual(blob, receipt, report), {"index": index_receipt, "report": receipt}
+    return read_annual(blob, receipt, report, listing), {"index": index_receipt, "report": receipt}
 
 
-def verified_statement(period, exchange, asof):
+def verified_statement(period, exchange, listing, asof):
     """Check published scope, freshness, receipts and cross-statement identities."""
-    if any(exchange.get(k) != value for k, value in PROFILE.items()):
+    if any(exchange.get(k) != value for k, value in listing.provenance().items()):
         return False
     index = exchange["index"]
     receipt = exchange["report"]
@@ -311,16 +496,16 @@ def verified_statement(period, exchange, asof):
     filed = document_day(url)
     end = date.fromisoformat(period["end"])
     if (period["route"], period["period_kind"], period["accounting"], period["currency"], period["sales_basis"]) != (
-            ROUTE, "annual", "IFRS", "CNY", BASIS):
+            ROUTE, "annual", "IFRS", "CNY", listing.sales_basis):
         return False
     if (not filed or not end < filed <= asof or end != date(end.year, 12, 31)
             or (asof - end).days > 465 or period["start"] != f"{end.year}-01-01"
-            or index["url"] != index_url(asof) or receipt["url"] != url):
+            or index["url"] != index_url(listing, asof) or receipt["url"] != url):
         return False
     if any(not re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for item in (index, receipt)):
         return False
     facts = period["facts"]
-    labels = {**FIELD_LABELS, **DEBT_MOVEMENT_FIELDS}
+    labels = field_labels(listing, latest=True)
     if facts.keys() != labels.keys():
         return False
     for key, fact in facts.items():

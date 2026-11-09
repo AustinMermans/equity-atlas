@@ -326,10 +326,14 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
             issues.append(f"ESEF: {exc}")
     source, history, receipt=max(choices,key=lambda x:(x[1][-1]["end"],len(x[1]),x[0])) if choices else (None,[],None)
     result = {"entity_name": entity, "source": source, "history": history, "issues": issues, "receipt": receipt, "edgar": audit}
-    if hkex.supported(cik, day):
-        result["exchange_filing"] = hkex.PROFILE.copy()
+    if listing := hkex.listing_for(cik, day):
+        result["exchange_filing"] = listing.provenance()
+        if history and source == "SEC":
+            result["exchange_filing"]["archived_annual"] = {
+                key: history[-1][key] for key in ("end", "filing")
+            }
         try:
-            exchange, receipts = hkex.load_annual(cache, day)
+            exchange, receipts = hkex.load_annual(cache, listing, day)
             if not history or exchange[-1]["end"] > history[-1]["end"]:
                 history = [p for p in history if p["end"] < exchange[0]["end"]] + exchange
                 result.update(source=hkex.SOURCE, history=history, receipt=receipts["report"])
@@ -401,7 +405,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
                 selected_source="Issuer"
         s=h[-1] if h else None
         k,g,why=classify(symbol,int(entry.get("sic") or 0))
-        row_id = hkex.ROW_ID if hkex.supported(cik, day) else f"sec:{cik:010d}"
+        listing = hkex.listing_for(cik, day)
+        row_id = listing.row_id if listing else f"sec:{cik:010d}"
         row={"id":row_id,"name":entry["name"],
              "symbol":symbol,"country":entry.get("country",""),"kind":k,"peer_group":g,
              "classification":why,"source":selected_source if s else None,"statement":s,
@@ -411,9 +416,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
                         for x in h],
              "issues":(payload or {}).get("issues",[]) + ([err] if err else []),"accounting":accounting(h),
              "edgar":(payload or {}).get("edgar",{})}
-        if row_id == hkex.ROW_ID:
-            row.update(name="China Mobile Limited", country="China",
-                       exchange_filing=(payload or {}).get("exchange_filing", hkex.PROFILE))
+        if listing:
+            row.update(name=listing.name, country="China",
+                       exchange_filing=(payload or {}).get("exchange_filing", listing.provenance()))
         if symbol=="TSM" and "2330" in taiwan:
             market=taiwan.pop("2330")
             row["market"]=market
@@ -429,7 +434,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                  knowable,{"TWD":fx},quote_day)
                     row.update(models=fit(case,[case]),ratios=case["ratios"],cycle=case["cycle"])
         rows.append(row)
-    exchange_rows = [r for r in rows if r["id"] == hkex.ROW_ID]
+    exchange_rows = [r for r in rows if r["id"].startswith("hkex:")]
     sec_rows = [r for r in rows if r["id"].startswith("sec:")]
     for quote in taiwan.values():
         rows.append({"id":f"xtai:{quote['code']}","symbol":quote["code"]+".TW","name":quote["name"],
