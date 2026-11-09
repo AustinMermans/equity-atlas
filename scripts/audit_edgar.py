@@ -97,6 +97,7 @@ CASH_INVESTMENT = {
     "SAP": ("EUR", 739_000_000), "SHEL": ("USD", 18_947_000_000),
     "SNY": ("EUR", 3_538_000_000), "TTE": ("USD", 16_953_000_000),
     "VLO": ("USD", 1_885_000_000), "VZ": ("USD", 17_011_000_000),
+    "PLD": ("USD", 3_670_812_000), "SMFG": ("JPY", 459_404_000_000), "WELL": ("USD", 1_487_994_000),
 }
 for symbol, expected in CASH_INVESTMENT.items():
     period = rows[symbol]["statement"]
@@ -112,6 +113,15 @@ OTHER_CASH_FLOWS = (
     ("PGR", "capex_disposal_proceeds", 80_000_000),
     ("TD", "capex_net_of_disposals", 2_145_000_000),
     ("UBS", "capex_disposal_proceeds", 209_000_000),
+    ("BNS", "capex_net_of_disposals", 347_000_000),
+    ("MS", "capex_net_of_disposals", 2_898_000_000),
+    ("RY", "capex_net_of_disposals", 2_243_000_000),
+    ("PLD", "capex_property_acquisitions", 1_800_527_000),
+    ("PLD", "capex_disposal_proceeds", 2_246_186_000),
+    ("SMFG", "capex_disposal_proceeds", 11_552_000_000),
+    ("WELL", "capex_property_acquisitions", 13_913_975_000),
+    ("WELL", "capex_capitalized_interest", 33_799_000),
+    ("WELL", "capex_disposal_proceeds", 5_658_270_000),
     ("APP", "capex_intangibles_discontinued", 22_429_000),
     ("APP", "capex_intangibles_continuing", 5_889_000),
     ("BHP", "capex_ppe", 9_849_000_000),

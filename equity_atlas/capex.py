@@ -5,7 +5,7 @@ import re
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, pdf_pages
-from .rendered_filing import ENDPOINT, amount, annual_table, scaled, valid_table_source
+from .rendered_filing import ENDPOINT, amount, annual_table, filing_tables, scaled, valid_table_source
 
 PPE_OTHER = "us-gaap:PaymentsToAcquireOtherPropertyPlantAndEquipment"
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
@@ -25,7 +25,16 @@ BMO = (927971, "0001193125-25-307982")
 CIBC = (1045520, "0001193125-25-307488")
 TD = (947263, "0001562762-25-000289")
 UBS = (1610520, "0001610520-26-000023")
-NET_ONLY = {BMO, CIBC, TD}
+MS = (895421, "0000895421-26-000086")
+RY = (1000275, "0001193125-25-305927")
+BNS = (9631, "0001193125-25-304643")
+PLD = (1045609, "0001193125-26-051453")
+WELL = (766704, "0000766704-26-000010")
+SMFG = (1022837, "0001193125-26-283871")
+NET_ONLY = {BMO, CIBC, TD, RY, BNS, MS}
+BNS_TITLE = "Consolidated Financial Statements / Consolidated Statement of Cash Flows"
+BNS_NET_LINE = "Property and equipment, net of disposals"
+BNS_NET_TAG = "disclosed:NetCashPurchasesOfPropertyAndEquipment"
 APPLOVIN = (1751008, "0001751008-26-000010")
 APP_INTANGIBLE_FIELDS = {
     "capex_intangibles_discontinued": ("disclosed:DiscontinuedIntangiblePurchases", "p. 65 · Note 3 · Acquisition of intangible assets by discontinued operations"),
@@ -34,7 +43,8 @@ APP_INTANGIBLE_FIELDS = {
 APP_INVESTMENT_GAP = ("Cash investment includes the discontinued Apps business. The 10-K separates intangible purchases "
                       "by operation and reports PP&E cash purchases on a consolidated basis.")
 ADDITIONAL_FIELDS = {"capex_mixed_outflow", "capex_financing_payment", "capex_reported_total",
-                     NET_PURCHASES, DISPOSAL_PROCEEDS, *APP_INTANGIBLE_FIELDS}
+                     NET_PURCHASES, DISPOSAL_PROCEEDS, "capex_property_acquisitions",
+                     "capex_capitalized_interest", *APP_INTANGIBLE_FIELDS}
 FINANCING_TAGS = {
     "arm:RepaymentsOfIntangibleAssetObligation",
     "intc:PaymentsToAcquirePropertyPlantAndEquipmentFinancingActivities",
@@ -52,6 +62,7 @@ FINANCING_TOTALS = {
 # These are face cash-flow amounts unless a filing exposes its separate PP&E
 # outflow in the FCF reconciliation. Reviewed rules revalidate the current filing.
 DIRECT = {
+    MS: (("us-gaap:PaymentsForProceedsFromProductiveAssets", "Net premises, equipment and software cash purchases"),),
     (831001, "0000831001-26-000011"): (  # C
         (PPE, "Capital expenditures on premises and equipment and capitalized software"),
     ),
@@ -80,6 +91,21 @@ SECTION_PROFILES = {
     BMO: ("Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, ()),
     CIBC: ("Consolidated statement of cash flows", "R9.htm", 1_000_000, ()),
     TD: ("Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, ()),
+    RY: ("Consolidated Statements of Cash Flows", "R6.htm", 1_000_000, ()),
+    SMFG: ("Consolidated Statements of Cash Flows", "R6.htm", 1_000_000, (
+        (IFRS_PPE, "Purchases of property, plant and equipment"),
+        (IFRS_INTANGIBLES, "Purchases of intangible assets"),
+    )),
+    PLD: ("Consolidated Statements of Cash Flows", "R8.htm", 1_000, (
+        ("us-gaap:PaymentsToDevelopRealEstateAssets", "Real estate development"),
+        ("us-gaap:PaymentsForLeasingCostsCommissionsAndTenantImprovements",
+         "Tenant improvements and lease commissions on previously leased space"),
+        ("pld:PaymentForPropertyImprovements", "Property improvements"),
+    )),
+    WELL: ("Consolidated Statements of Cash Flows", "R6.htm", 1_000, (
+        (TURNAROUND, "Cash disbursed for capital improvements to existing properties"),
+        ("us-gaap:PaymentsForConstructionInProcess", "Cash disbursed for construction in progress"),
+    )),
     UBS: ("Consolidated Statement of Cash Flows", "R9.htm", 1_000_000, (
         ("ubs:PuchaseOfPropertyEquipmentSoftwareClassifiedAsInvestingActivities", "Purchase of property, equipment and software"),
     )),
@@ -242,6 +268,21 @@ SUPPLEMENTARY_CASH_FLOWS = {
                            "Net sale (purchase) of property, equipment, software and other intangible assets")},
     TD: {NET_PURCHASES: ("td:NetPurchasesOfLandBuildingsEquipmentAndOtherDepreciableAssets",
                          "Net purchases of land, buildings, equipment, other depreciable assets, and other intangibles")},
+    RY: {NET_PURCHASES: ("ry:PurchaseSaleOfPremisesAndEquipmentIntangibleAssetsOtherThanGoodwillAndOtherNoncurrentAssets",
+                         "Net acquisitions of premises and equipment and other intangibles")},
+    SMFG: {DISPOSAL_PROCEEDS: ("ifrs-full:ProceedsFromSalesOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+                              "Proceeds from sales of property, plant and equipment")},
+    PLD: {
+        "capex_property_acquisitions": ("us-gaap:PaymentsToAcquireRealEstate", "Real estate acquisitions"),
+        DISPOSAL_PROCEEDS: ("us-gaap:ProceedsFromRealEstateAndRealEstateJointVentures",
+                            "Proceeds from dispositions and contributions of real estate"),
+    },
+    WELL: {
+        "capex_property_acquisitions": ("us-gaap:PaymentsToAcquireOtherRealEstate",
+                                        "Cash disbursed for acquisitions, net of cash acquired"),
+        "capex_capitalized_interest": ("us-gaap:InterestPaidCapitalized", "Capitalized interest"),
+        DISPOSAL_PROCEEDS: (AXP_SALES[0], "Proceeds from sales of real property"),
+    },
     UBS: {DISPOSAL_PROCEEDS: ("ubs:ProceedsFromSalesOfPropertyEquipmentSoftwareClassifiedAsInvestingActivities",
                               "Disposal of property, equipment and software")},
     (80661, "0000080661-26-000086"): {
@@ -352,7 +393,7 @@ VALERO_MEMBERS = (
 )
 
 
-PINNED = DIRECT.keys() | RENDERED.keys() | PDFS.keys()
+PINNED = DIRECT.keys() | RENDERED.keys() | PDFS.keys() | {BNS}
 RECURRING = recurring_annual_rules(PINNED - PDFS.keys())
 
 
@@ -421,7 +462,9 @@ def rendered_components(cache, obj, key, statement, report, component):
         consolidated = table
 
     cfo = statement["facts"]["cfo"]
-    if scaled(amount(consolidated, cfo["tag"], index)[0], scale) != cfo["value"]:
+    # SMFG's operating cash flow can come from the issuer PDF or tagged filing.
+    cfo_tag = "ifrs-full:CashFlowsFromUsedInOperatingActivities" if key == SMFG else cfo["tag"]
+    if scaled(amount(consolidated, cfo_tag, index)[0], scale) != cfo["value"]:
         raise ValueError("Cash-flow table operating cash disagrees with the exact SEC statement")
 
     def extract(part, tag, label, scope="", *, dimensioned=False, field=None):
@@ -438,7 +481,7 @@ def rendered_components(cache, obj, key, statement, report, component):
     investing, financing = consolidated, None
     if key in SECTION_PROFILES:
         needs_financing = any(tag in FINANCING_TAGS for tag, _ in (*concepts, *extras.values()))
-        investing, financing = cash_activity(consolidated, index, cfo["tag"], needs_financing)
+        investing, financing = cash_activity(consolidated, index, cfo_tag, needs_financing)
     if cik == 1283699:
         # The footnote in this face line contains three years of interest amounts.
         investing = {**investing, "rows": [
@@ -527,6 +570,37 @@ def pdf_component(cache, key, statement, component):
     return ppe, {"capex_intangibles_discontinued": component(tag, value, locator, receipt)}
 
 
+def bns_exhibit(url, report):
+    return (report["form"] == "40-F" and isinstance(url, str) and url.startswith(report["path"] + "/")
+            and bool(re.fullmatch(r"[\w-]+dex993\.htm", url.removeprefix(report["path"] + "/"), re.ASCII)))
+
+
+def bns_net_purchases(cache, report, statement, component):
+    tables, digests, receipt = filing_tables(cache, BNS[0], report, BNS_NET_LINE, "EX-99.3")
+    table, = (table for table in tables if table["source"] == "document table" and table["title"] == BNS_TITLE
+              and bns_exhibit(table.get("url"), report) and re.fullmatch(r"[0-9a-f]{16}", digests.get(table["url"], "")))
+    year = report["end"][:4]
+    if statement["currency"] != "CAD" or table["columns"] != ["line", year, "", str(int(year) - 1), ""]:
+        raise ValueError("Unexpected Scotiabank cash-flow exhibit columns")
+
+    def position(label):
+        index, = (i for i, row in enumerate(table["rows"]) if row[0] == label)
+        return index
+
+    def value(index):
+        number, = (n for n in table["rows"][index][1:3] if type(n) in (int, float))
+        return scaled(number, 1_000_000)
+
+    cfo = position("Net cash from/(used in) operating activities")
+    investing = position("Cash flows from investing activities")
+    net_purchases = position(BNS_NET_LINE)
+    end = position("Net cash from/(used in) investing activities")
+    if not cfo < investing < net_purchases < end or value(cfo) != statement["facts"]["cfo"]["value"]:
+        raise ValueError("Scotiabank cash-flow exhibit does not match consolidated investing activities")
+    return component(BNS_NET_TAG, -value(net_purchases), f"{BNS_TITLE} · Investing activities · {BNS_NET_LINE}",
+                     receipt, signed=True, table_url=table["url"], table_sha256_16=digests[table["url"]])
+
+
 def enrich_capex(cache, obj, meta, cik, report, statement):
     key = rule_key(cik, report)
     if (not supported(cik, report) or statement["period_kind"] != "annual" or
@@ -546,13 +620,19 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     if key in PDFS:
         ppe, reported = pdf_component(cache, key, statement, component)
         parts.append(ppe)
+    if key == BNS:
+        reported[NET_PURCHASES] = bns_net_purchases(cache, report, statement, component)
     if key in RENDERED:
         parts, reported = rendered_components(cache, obj, key, statement, report, component)
     for tag, label in DIRECT.get(key, ()):
         value = exact_sec_amount(obj, statement, report, tag)
         if value is None:
             raise ValueError(f"Missing exact SEC Company Facts cash outflow for {label}")
-        parts.append(component(tag, value, "Consolidated cash flow · " + label, meta))
+        line = component(tag, value, "Consolidated cash flow · " + label, meta, signed=key in NET_ONLY)
+        if key in NET_ONLY:
+            reported[NET_PURCHASES] = line
+        else:
+            parts.append(line)
 
     existing = statement["facts"].get("capex")
     if key in NET_ONLY:
@@ -570,6 +650,8 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     capex = {**parts[0], "value": total, "tag": CAPEX_TAG, "components": parts}
     if len(parts) > 1:
         capex["locator"] = "Sum of " + str(len(parts)) + " reviewed cash investment lines"
+    if key in {PLD, WELL}:
+        capex["locator"] = "Development and improvements, excluding property acquisitions"
     if key == AXP:
         capex["locator"] = "Gross premises and equipment purchases · Net purchases plus cash sales"
     if key == APPLOVIN:
@@ -594,6 +676,8 @@ def required_additional_fields(cik, report):
     fields = set(SUPPLEMENTARY_CASH_FLOWS.get(key, {}))
     if key == AXP:
         fields.add(DISPOSAL_PROCEEDS)
+    if key in NET_ONLY:
+        fields.add(NET_PURCHASES)
     if cik in REPORTED_TOTALS:
         fields.add("capex_reported_total")
     if key == APPLOVIN:
@@ -603,6 +687,12 @@ def required_additional_fields(cik, report):
 
 def valid_capex_components(parts, cik, report, field):
     key = rule_key(cik, report)
+    if key == BNS and field == NET_PURCHASES and len(parts) == 1:
+        part = parts[0]
+        return (part["tag"] == BNS_NET_TAG and part["source"] == ENDPOINT
+                and part["locator"] == f"{BNS_TITLE} · Investing activities · {BNS_NET_LINE}"
+                and bns_exhibit(part.get("table_url"), report)
+                and bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
     expected = []
     pinned_filename = None
     if field == "capex" and key in PDFS:
@@ -630,7 +720,7 @@ def valid_capex_components(parts, cik, report, field):
         elif field == "capex_reported_total" and cik in REPORTED_TOTALS:
             tag, label = REPORTED_TOTALS[cik]
             expected.append((ENDPOINT, tag, f"{title} · {label}"))
-    if field == "capex":
+    if field == (NET_PURCHASES if key in NET_ONLY else "capex"):
         expected.extend((SEC.format(cik), tag, f"Consolidated cash flow · {label}")
                         for tag, label in DIRECT.get(key, ()))
     return bool(expected) and len(parts) == len(expected) and all(

@@ -28,6 +28,8 @@ const fieldNames={
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
  capex_net_of_disposals:'Cash capital purchases net of disposals',
  capex_disposal_proceeds:'Cash proceeds from disposals of productive assets',
+ capex_property_acquisitions:'Cash paid for real-estate acquisitions',
+ capex_capitalized_interest:'Cash interest capitalized in development',
  depreciation_other_assets:'Depreciation of other assets',
  da_excluding_acquired_intangibles:'D&A excluding acquired intangible amortization',
  amortization_operating_rou:'Amortization of operating lease assets',
@@ -175,11 +177,11 @@ function render() {
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
  const capexDetail=v=>{
-   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment,st?.facts?.capex_net_of_disposals,st?.facts?.capex_disposal_proceeds].includes(v)) return '';
+   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment,st?.facts?.capex_net_of_disposals,st?.facts?.capex_disposal_proceeds,st?.facts?.capex_property_acquisitions,st?.facts?.capex_capitalized_interest].includes(v)) return '';
    const components=v.components||[v];
    return '<details><summary>Filed cash investment lines</summary><ul>'+components.map(part=>{
      const source=part.table_url||part.source;
-     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?(part.table_kind==='bmo_cash_flow_exhibit'?'SEC-filed financial statements':part.source===part.table_url?'SEC rendered statement':'SEC table via Canli Capital'):source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
+     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?((part.table_kind==='bmo_cash_flow_exhibit'||part.table_url.endsWith('dex993.htm'))?'SEC-filed financial statements':part.source===part.table_url?'SEC rendered statement':'SEC table via Canli Capital'):source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
    }).join('')+'</ul></details>';
  };
  const componentDetail=v=>{
