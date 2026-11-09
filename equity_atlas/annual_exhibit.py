@@ -53,6 +53,7 @@ PROFILES = {
             "gaap_other_income": "Other income (loss) (GAAP)",
             "gaap_pretax": "Profit (loss) (GAAP)",
             "insurance_revenue": "Less: Insurance revenue",
+            "runoff_insurance_costs": "Less: Insurance cost and expenses",
             "sales_adjusted": "Adjusted revenue (Non-GAAP)",
             "costs_adjusted": "Adjusted costs (Non-GAAP)",
             "other_income_adjusted": "Adjusted other income (loss) (Non-GAAP)",
@@ -196,7 +197,8 @@ def exhibit_facts(cik, report, period, evidence):
                 abs(gaap_profit - values["gaap_pretax"]) > 1_000_000 or
                 abs(adjusted_sales - values["sales_adjusted"]) > 1_000_000 or
                 abs(adjusted_profit - values["ebit_adjusted"]) > 1_000_000 or
-                not 0 <= values["insurance_revenue"] <= values["gaap_sales"]):
+                not 0 <= values["insurance_revenue"] <= values["gaap_sales"] or
+                not 0 <= values["runoff_insurance_costs"] <= values["gaap_costs"]):
             raise ValueError("GE adjusted operating profit does not reconcile to the full-year exhibit")
         fields = labels.keys() - {"gaap_sales", "gaap_costs", "gaap_other_income", "gaap_pretax"}
     else:
@@ -238,6 +240,13 @@ def exhibit_facts(cik, report, period, evidence):
                         "rounding_increment": 100_000_000,
                         "locator": "Fixed-asset D&A and acquired-intangible amortization (includes a rounded input)"}
     if cik == GE:
+        insurance = [(result["insurance_revenue"], 1), (result["runoff_insurance_costs"], -1)]
+        result["runoff_insurance_operating_profit"] = {
+            **result["insurance_revenue"], "value": sum(fact["value"] * sign for fact, sign in insurance),
+            "locator": "Run-off insurance revenue less insurance costs",
+            "components": [{**fact, "sign": sign, "line": fact["locator"], "table_url": url}
+                           for fact, sign in insurance],
+        }
         result["ebit_adjusted"]["components"] = [
             {**result[key], "sign": sign, "line": labels[key], "table_url": url}
             for key, sign in (("sales_adjusted", 1), ("costs_adjusted", -1), ("other_income_adjusted", 1))

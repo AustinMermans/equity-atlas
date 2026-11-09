@@ -17,7 +17,8 @@ from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSI
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
                                        rule_key as depreciation_rule_key, valid_component as valid_depreciation_component)
-from equity_atlas.filing_notes import PINNED as NOTES_PINNED, TAG as NOTE_TAG, notes_for, valid_note
+from equity_atlas.filing_notes import (LINE_TAG as NOTE_LINE_TAG, PINNED as NOTES_PINNED, TAG as NOTE_TAG,
+                                        note_line_facts, notes_for, valid_note)
 from equity_atlas.inline import inline_url
 from equity_atlas.facts import balance_check
 from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
@@ -178,6 +179,9 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual earnings exhibit") from exc
         if any(period["facts"].get(key) != value for key, value in disclosed.items()):
             raise SystemExit("Annual earnings exhibit facts do not reconcile")
+    lines = note_line_facts(selected_cik, annual_report, period["facts"]) if annual_report else {}
+    if any(period["facts"].get(key) != value for key, value in lines.items()):
+        raise SystemExit("Annual note line differs from the reconciled source")
     scope_evidence = period.get("annual_business_scopes")
     scoped = {}
     if scope_evidence:
@@ -248,6 +252,8 @@ def verify_period(period, row):
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == BUSINESS_TAG:
             official = scoped.get(key) == fact
+        if fact["tag"] == NOTE_LINE_TAG:
+            official = lines.get(key) == fact
         if fact["tag"] == NOTE_TAG:
             official = bool(annual_report and valid_note(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == WORKBOOK_CAPEX_TAG:

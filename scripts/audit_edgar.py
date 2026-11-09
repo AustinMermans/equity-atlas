@@ -201,7 +201,13 @@ ANNUAL_NOTES = {
     "MRK": {"other_income_expense_note": (151, (-343, 1357, 323, -368, -615, -203))},
     "PFE": {"other_income_expense_note": (6724, (-603, 2671, 67, -192, -678, 1057, 4940, 0, -538))},
     "CSCO": {"amortization_purchased_intangibles_with_impairment": (1863, (947, 916))},
-    "IBM": {"other_income_expense_note": (-442, (993, -641, -645, 7, 65, -221))},
+    "GE": {"ge_insurance_income_note": (877, (1002, -125))},
+    "IBM": {
+        "other_income_expense_note": (-442, (993, -641, -645, 7, 65, -221)),
+        "ibm_segment_profit_bridge": (10328, (16364, -2166, -154, -65, -1685, -1312, -653, -33, 31)),
+        "ibm_segment_profit_note": (16364, (9920, 2464, 3458, 521)),
+        "ibm_debt_split_note": (61260, (15093, 46167)),
+    },
     "JNJ": {"other_income_expense_note": (-7200, (-6000, -500, -400, 200, 0, -500))},
 }
 for symbol, fields in ANNUAL_NOTES.items():
@@ -213,6 +219,21 @@ for symbol, fields in ANNUAL_NOTES.items():
         if (fact.get("unit"), fact.get("value"), actual) != ("USD", round(total * 1_000_000), expected):
             raise SystemExit(f"{symbol} {key}: annual note amounts changed")
         checked += 1 + len(expected)
+SCOPED_LINES = {
+    "GE": {"runoff_insurance_pretax_income": 1002, "runoff_insurance_tax_effect": -125,
+           "runoff_insurance_costs": 2541, "runoff_insurance_operating_profit": 992},
+    "IBM": {"ibm_reportable_segment_profit": 16364, "ibm_net_interest_ex_financing": -1312,
+            "ibm_nonoperating_retirement_income": -65, "ibm_financing_debt": 15093,
+            "ibm_nonfinancing_debt": 46167, "ibm_software_segment_profit": 9920,
+            "ibm_consulting_segment_profit": 2464, "ibm_infrastructure_segment_profit": 3458,
+            "ibm_financing_segment_profit": 521},
+}
+for symbol, fields in SCOPED_LINES.items():
+    facts = rows[symbol]["statement"]["facts"]
+    for key, amount in fields.items():
+        if (facts.get(key, {}).get("unit"), facts.get(key, {}).get("value")) != ("USD", amount * 1_000_000):
+            raise SystemExit(f"{symbol} {key}: filed business-scope amount changed")
+        checked += 1
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
     "AXP": ("USD", {"da": 1777}),

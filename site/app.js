@@ -53,6 +53,23 @@ const fieldNames={
  corporate_interest_income_other:'Corporate interest income outside the client-funds strategy',
  corporate_interest_income_filed:'Total interest income on corporate funds',
  nonoperating_income_net:'Filed other income, net',
+ ibm_segment_profit_bridge:'IBM pretax income reconciled to reportable segment profit',
+ ibm_segment_profit_note:'IBM profit across all reportable segments',
+ ibm_debt_split_note:'IBM total debt by business scope',
+ ibm_reportable_segment_profit:'IBM reported segment profit before unallocated items',
+ ibm_net_interest_ex_financing:'Net interest income or expense outside IBM Financing',
+ ibm_nonoperating_retirement_income:'IBM nonoperating retirement income or expense',
+ ibm_software_segment_profit:'Software segment profit',
+ ibm_consulting_segment_profit:'Consulting segment profit',
+ ibm_infrastructure_segment_profit:'Infrastructure segment profit',
+ ibm_financing_segment_profit:'IBM Financing segment profit including intercompany activity',
+ ibm_financing_debt:'IBM Financing debt allocation',
+ ibm_nonfinancing_debt:'IBM non-Financing debt allocation',
+ runoff_insurance_costs:'Run-off insurance costs and expenses',
+ runoff_insurance_operating_profit:'Run-off insurance operating profit',
+ runoff_insurance_pretax_income:'Run-off insurance pretax income',
+ runoff_insurance_tax_effect:'Run-off insurance tax effect',
+ ge_insurance_income_note:'Run-off insurance after-tax net income',
  ebit_equipment_segments:'Operating profit across equipment segments',
  ebit_financial_services_segment:'Financial Services segment operating profit after interest',
  ebit_reported_segment_total:'Reported operating profit across all segments',
@@ -145,12 +162,13 @@ function detail(r) {
    const titles={
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
+     'disclosed:ReconciledAnnualNoteLine':'Filed note line',
      'disclosed:ReconciledBusinessScopes':'Filed business-scope components',
      'disclosed:AnnualEarningsExhibit':'Annual filing and exhibit reconciliation',
    };
    const title=titles[v.tag]||'Filed income statement lines';
    const anchor=v.tag==='disclosed:ReconciledAnnualNote'&&v.rounding_increment?
-     '<p class="minor">Exact annual amount as SEC-tagged · '+esc(v.unit)+' '+reportedAmount.format(v.anchor_value)+'</p>':'';
+     '<p class="minor">Reconciliation anchor · '+esc(v.unit)+' '+reportedAmount.format(v.anchor_value)+'</p>':'';
    return '<details><summary>'+title+'</summary>'+anchor+'<ul>'+v.components.map(part=>{
      const source=part.table_url||part.source||v.table_url;
      return '<li>'+esc(part.line.replace('::',' · '))+' · '+esc(v.unit)+' '+reportedAmount.format(part.sign*part.value)+

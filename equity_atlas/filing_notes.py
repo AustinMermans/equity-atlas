@@ -9,6 +9,12 @@ from .fetch import SEC
 from .rendered_filing import ENDPOINT, filing_tables, scaled
 
 TAG = "disclosed:ReconciledAnnualNote"
+LINE_TAG = "disclosed:ReconciledAnnualNoteLine"
+PRETAX = "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+IBM_SEGMENT_BRIDGE = "ibm_segment_profit_bridge"
+IBM_SEGMENT_NOTE = "ibm_segment_profit_note"
+IBM_DEBT_NOTE = "ibm_debt_split_note"
+GE_INSURANCE_NOTE = "ge_insurance_income_note"
 OTHER_NONOPERATING = "us-gaap:OtherNonoperatingIncomeExpense"
 OTHER = "other_income_expense_note"
 DERIVATIVES = "derivative_gain_loss_note"
@@ -29,6 +35,12 @@ class Note:
     anchor_line: str | None = None
     anchor_sign: int = -1
     rounding_increment: int = 0
+    outputs: tuple[tuple[str, str], ...] = ()
+    stock: bool = False
+    anchor_tags: tuple[str, ...] = ()
+    headers: tuple[str, ...] = ()
+    segment_row: str | None = None
+    anchor_note: str | None = None
 
 
 PROFILES = {
@@ -70,7 +82,60 @@ PROFILES = {
             ), date_format="{year}",
         ),
     },
+    (40545, "10-K"): {
+        GE_INSURANCE_NOTE: Note(
+            "Management discussion · Run-off insurance net income",
+            "Insurance net income (loss) (net of tax)", PRETAX,
+            "Less: Insurance net income (loss) (net of tax) (Note 12)", (
+                "Insurance net income (loss) (pre-tax)",
+                "Tax effect on Insurance net income (loss)(a)",
+            ), anchor_line="Income from continuing operations before taxes (GAAP)", anchor_sign=1,
+            headers=("line", "Income", "{previous} EPS", "Income", "EPS"),
+            outputs=(
+                ("runoff_insurance_pretax_income", "Insurance net income (loss) (pre-tax)"),
+                ("runoff_insurance_tax_effect", "Tax effect on Insurance net income (loss)(a)"),
+            ),
+        ),
+    },
     (51143, "10-K"): {
+        IBM_SEGMENT_BRIDGE: Note(
+            "Note D · Reportable segment profit to pretax income",
+            "Total reportable segment profit", PRETAX, "Total pre-tax income from continuing operations", (
+                "Total reportable segment profit", "Amortization of acquired intangible assets",
+                "Acquisition-related charges", "Non-operating retirement-related (costs)/income (2)",
+                "Stock-based compensation (3)", "Net interest excluding the Financing segment",
+                "Workforce rebalancing charges (3)", "Other-divested businesses (4)",
+                "Unallocated corporate amounts and other (5)",
+            ), date_format="{year}", document="EX-13", document_filename="ibm-{date}_d2.htm",
+            anchor_sign=1, rounding_increment=1_000_000, outputs=(
+                ("ibm_reportable_segment_profit", "Total reportable segment profit"),
+                ("ibm_net_interest_ex_financing", "Net interest excluding the Financing segment"),
+                ("ibm_nonoperating_retirement_income", "Non-operating retirement-related (costs)/income (2)"),
+            ),
+        ),
+        IBM_SEGMENT_NOTE: Note(
+            "Note D · Profit by reportable segment", "Segment profit", "Total reportable segment profit",
+            "Segments", ("Software", "Consulting", "Infrastructure", "Financing (1)"),
+            date_format="{year}", document="EX-13", document_filename="ibm-{date}_d2.htm",
+            title_phrase="management system segment view", anchor_sign=1, rounding_increment=1_000_000,
+            segment_row="Segment profit", anchor_note=IBM_SEGMENT_BRIDGE, outputs=(
+                ("ibm_software_segment_profit", "Software"),
+                ("ibm_consulting_segment_profit", "Consulting"),
+                ("ibm_infrastructure_segment_profit", "Infrastructure"),
+                ("ibm_financing_segment_profit", "Financing (1)"),
+            ),
+        ),
+        IBM_DEBT_NOTE: Note(
+            "Management discussion · Financing and non-Financing debt", "Non-Financing debt",
+            "us-gaap:LongTermDebtAndCapitalLeaseObligationsCurrent", "Total debt", (
+                "Financing segment debt (1)", "Non-Financing debt",
+            ), date_format="{year}", document="EX-13", document_filename="ibm-{date}_d2.htm",
+            anchor_sign=1, stock=True, rounding_increment=1_000_000,
+            anchor_tags=("us-gaap:LongTermDebtNoncurrent",), outputs=(
+                ("ibm_financing_debt", "Financing segment debt (1)"),
+                ("ibm_nonfinancing_debt", "Non-Financing debt"),
+            ),
+        ),
         OTHER: Note(
             "Note F · Other income and expense", "Total other (income) and expense retirement-related",
             "us-gaap:InterestIncomeOther", "Total other (income) and expense", (
@@ -115,6 +180,7 @@ PROFILES = {
 }
 PINNED = {
     (2809, "0001104659-26-032153"),
+    (40545, "0000040545-26-000008"),
     (14272, "0000014272-26-000004"),
     (310158, "0000310158-26-000063"),
     (78003, "0000078003-26-000026"),
@@ -147,14 +213,30 @@ def amount_in_note(rows, label, column, scale):
     return scaled(value, scale)
 
 
-def reconciles(note, total, amounts, anchor):
+def reconciles(note, total, amounts, anchor, reported_anchor=None):
     rounding = note.rounding_increment
-    anchored = note.anchor_sign * (amounts[note.anchor_line] if note.anchor_line else total)
+    if note.anchor_line:
+        reported = amounts.get(note.anchor_line, reported_anchor)
+    else:
+        reported = total
+    if type(reported) is not int:
+        return False
+    anchored = note.anchor_sign * reported
     return (
         abs(anchored - anchor) <= rounding // 2 and
         abs(sum(amounts.values()) - total) <= (len(amounts) + 1) * rounding // 2 and
         (not rounding or all(value % rounding == 0 for value in (total, *amounts.values())))
     )
+
+
+def segment_rows(table, note, year):
+    """Normalize a segment-by-column layout to the standard note rows."""
+    rows = table["rows"]
+    breaks = [(index, row[1]) for index, row in enumerate(rows) if not row[0] and type(row[1]) is int]
+    if [value for _, value in breaks] != [year - 1, year - 2]:
+        raise ValueError("Unexpected segment comparative years")
+    row, = [r for r in rows[:breaks[0][0]] if r[0] == note.segment_row]
+    return list(zip((*note.lines, note.total), row[2:], strict=True))
 
 
 def note_components(cache, cik, report, note, anchor):
@@ -165,27 +247,35 @@ def note_components(cache, cik, report, note, anchor):
         raise ValueError("Missing note document checksum")
     end = date.fromisoformat(report["end"])
     year = note.date_format.format(month=end.strftime("%B"), day=end.day, year=end.year)
+    headers = [h.format(previous=end.year - 1) for h in note.headers]
+    if note.segment_row:
+        headers = ["line", "", *note.lines, note.total]
     matches = []
     for table in tables:
         if (table["source"] != "document table" or table.get("url") != url or
-                table["columns"].count(year) != 1 or
+                (table["columns"] != headers if headers else table["columns"].count(year) != 1) or
                 (note.title_phrase and note.title_phrase not in (table.get("title") or "").lower())):
             continue
-        index = table["columns"].index(year)
+        index = 1 if headers else table["columns"].index(year)
         try:
-            total = amount_in_note(table["rows"], note.total, index, note.scale)
-            amounts = {label: amount_in_note(table["rows"], label, index, note.scale) for label in note.lines}
+            rows = segment_rows(table, note, end.year) if note.segment_row else table["rows"]
+            total = amount_in_note(rows, note.total, index, note.scale)
+            amounts = {label: amount_in_note(rows, label, index, note.scale) for label in note.lines}
+            reported_anchor = (amount_in_note(rows, note.anchor_line, index, note.scale)
+                               if note.anchor_line and note.anchor_line not in amounts else None)
         except ValueError:
             continue
-        if reconciles(note, total, amounts, anchor):
-            matches.append((total, amounts))
+        if reconciles(note, total, amounts, anchor, reported_anchor):
+            matches.append((total, amounts, reported_anchor))
     if len(matches) != 1:
         raise ValueError(f"Missing unique reconciled full-year table for {note.heading}")
-    total, amounts = matches[0]
+    total, amounts, reported_anchor = matches[0]
     parts = [{"line": label, "value": abs(value), "sign": -1 if value < 0 else 1, "table_url": url}
              for label, value in amounts.items()]
     fact = {"value": total, "table_url": url, "table_sha256_16": digest, "sha256": receipt["sha256"],
             "components": parts}
+    if reported_anchor is not None:
+        fact["anchor_line_value"] = reported_anchor
     if note.rounding_increment:
         fact["rounding_increment"] = note.rounding_increment
     return fact
@@ -197,16 +287,56 @@ def enrich_notes(cache, obj, meta, cik, report, statement):
         raise ValueError("Annual note scope does not match the selected statement")
     facts = statement["facts"].copy()
     for field, note in notes_for(cik, report).items():
-        anchor = exact_sec_amount(obj, statement, report, note.anchor)
-        if anchor is None:
-            raise ValueError(f"Missing exact Company Facts anchor for {note.heading}")
+        scope = {**statement, "start": None} if note.stock else statement
+        if note.anchor_note:
+            parent = facts[note.anchor_note]
+            anchor = anchor_note_amount(parent, note)
+            anchor_sha256 = parent["sha256"]
+        else:
+            tags = (note.anchor, *note.anchor_tags)
+            amounts = [exact_sec_amount(obj, scope, report, tag) for tag in tags]
+            if any(amount is None for amount in amounts):
+                raise ValueError(f"Missing exact Company Facts anchor for {note.heading}")
+            anchor = sum(amounts)
+            anchor_sha256 = meta["sha256"]
         facts[field] = {
             **note_components(cache, cik, report, note, anchor),
-            "tag": TAG, "unit": "USD", "start": statement["start"], "source": ENDPOINT,
+            "tag": TAG, "unit": "USD", "start": scope["start"], "source": ENDPOINT,
             "form": report["form"], "filed": report["filed"], "accession": report["accession"], "url": report["url"],
-            "locator": note.heading, "anchor_tag": note.anchor, "anchor_value": anchor, "anchor_sha256": meta["sha256"],
+            "locator": note.heading, "anchor_tag": note_anchor_label(note),
+            "anchor_value": anchor, "anchor_sha256": anchor_sha256,
         }
+    facts.update(note_line_facts(cik, report, facts))
     return {**statement, "facts": facts}
+
+
+def note_line_facts(cik, report, facts):
+    result = {}
+    for key, note in notes_for(cik, report).items():
+        if key not in facts or not note.outputs:
+            continue
+        parent = facts[key]
+        lines = {part["line"]: part for part in parent["components"]}
+        for field, line in note.outputs:
+            part = lines[line]
+            result[field] = {
+                **{k: parent[k] for k in ("unit", "start", "source", "form", "filed", "accession", "url",
+                                           "table_url", "table_sha256_16", "sha256")},
+                "tag": LINE_TAG, "value": part["sign"] * part["value"],
+                "locator": f"{parent['locator']} · {line}", "components": [part],
+            }
+    return result
+
+
+def note_anchor_label(note):
+    if note.anchor_note:
+        return f"{note.anchor_note} · {note.anchor}"
+    return " + ".join((note.anchor, *note.anchor_tags))
+
+
+def anchor_note_amount(parent, note):
+    part, = [part for part in parent["components"] if part["line"] == note.anchor]
+    return part["sign"] * part["value"]
 
 
 def valid_note(period, report, cik, field, fact):
@@ -220,15 +350,27 @@ def valid_note(period, report, cik, field, fact):
                 part["sign"] not in (-1, 1) for part in parts)):
         return False
     amounts = {part["line"]: part["sign"] * part["value"] for part in parts}
+    facts = period["facts"]
+    if note.anchor_note:
+        parent = facts.get(note.anchor_note)
+        if (not parent or parent["tag"] != TAG or fact["anchor_sha256"] != parent["sha256"]
+                or fact["anchor_value"] != anchor_note_amount(parent, note)):
+            return False
+    elif note.anchor == PRETAX and facts.get("pretax", {}).get("value") != fact["anchor_value"]:
+        return False
+    elif field == IBM_DEBT_NOTE and fact["anchor_value"] != sum(facts[k]["value"] for k in ("debt_current", "debt_noncurrent")):
+        return False
     return (
         (period["period_kind"], period["filing"], period["end"], period["currency"]) ==
         ("annual", report["accession"], report["end"], "USD") and
         (fact["accession"], fact["form"], fact["filed"], fact["url"], fact["unit"], fact["start"]) ==
-        (report["accession"], report["form"], report["filed"], report["url"], "USD", period["start"]) and
+        (report["accession"], report["form"], report["filed"], report["url"], "USD",
+         None if note.stock else period["start"]) and
         fact["source"] == ENDPOINT and fact["table_url"] == url and fact["locator"] == note.heading and
         bool(re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", ""))) and
         all(re.fullmatch(r"[0-9a-f]{64}", fact.get(k, "")) for k in ("sha256", "anchor_sha256")) and
-        fact["anchor_tag"] == note.anchor and type(fact["anchor_value"]) is int and
+        fact["anchor_tag"] == note_anchor_label(note) and
+        type(fact["anchor_value"]) is int and
         fact.get("rounding_increment", 0) == note.rounding_increment and
-        reconciles(note, fact["value"], amounts, fact["anchor_value"])
+        reconciles(note, fact["value"], amounts, fact["anchor_value"], fact.get("anchor_line_value"))
     )
