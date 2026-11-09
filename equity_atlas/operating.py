@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from .annual_exhibit import ADP, supported as exhibit_supported
 from .deere import CIK as DEERE, PINNED as DEERE_PINNED, supported as deere_business_scopes
 from .facts import annual_rule_key, recurring_annual_rules
+from .filing_notes import DERIVATIVES, OTHER
 from .rendered_filing import ENDPOINT, annual_table, scaled
 
 OPERATING_TAG = "derived:FiledOperatingProfit"
+INCOME_SUBTOTAL_TAG = "derived:FiledIncomeSubtotal"
+PRETAX_BRIDGE_TAG = "derived:ReconciledPretaxScope"
 SALES_BASIS = "operating_sales"
 
 @dataclass(frozen=True)
@@ -74,9 +77,87 @@ XOM_OPERATING = (
     XOM_SALES, "-Total costs and other deductions", "Interest expense", "Non-service pension and postretirement benefit expense",
 )
 
+MINING_SUBTOTAL = "mining_profit_before_financial_and_other"
+OPERATING_SUBTOTAL = "operating_profit_before_other_items"
+OTHER_FILED = "other_income_expense_filed"
+AEM = (2809, "0001104659-26-032153")
+BMY = (14272, "0000014272-26-000004")
+JNJ = (200406, "0000200406-26-000016")
+MRK = (310158, "0000310158-26-000063")
+PFE = (78003, "0000078003-26-000026")
+AEM_SUBTOTAL = (
+    "Revenues from mining operations (Note 19)", "-Production", "-Exploration and corporate development",
+    "-Amortization of property, plant and mine development (Note 9)", "-General and administrative",
+    "-Impairment reversal (Note 24)", "-Care and maintenance",
+)
+AEM_FINANCE = "Finance costs (Note 14)"
+AEM_DERIVATIVES = "(Gain) loss on derivative financial instruments (Note 21)"
+AEM_TRANSLATION = "Foreign currency translation (gain) loss"
+AEM_OTHER = "Other income and expenses (Note 22)"
+AEM_PRETAX = "Income before income and mining taxes"
+BMY_SUBTOTAL = (
+    "Total Revenues", "-Cost of products sold", "-Selling, general and administrative",
+    "-Research and development", "-Acquired IPRD", "-Amortization of acquired intangible assets",
+)
+BMY_OTHER = "Other (income)/expense, net"
+BMY_PRETAX = "Earnings/(Loss) before income taxes"
+JNJ_SUBTOTAL = (
+    "Sales to customers", "-Cost of products sold", "-Selling, marketing and administrative expenses",
+    "-Research and development expense", "-In-process research and development impairments", "-Restructuring",
+)
+JNJ_INTEREST = ("Interest expense, net of portion capitalized", "Interest income")
+JNJ_OTHER = "Other (income) expense, net"
+JNJ_PRETAX = "Earnings before provision for taxes on income"
+MRK_SUBTOTAL = (
+    "Sales", "-Cost of sales", "-Selling, general and administrative", "-Research and development",
+    "-Restructuring costs",
+)
+MRK_OTHER = "Other (income) expense, net"
+MRK_PRETAX = "Income Before Taxes"
+PFE_SUBTOTAL = (
+    "Total revenues", "-Cost of sales", "-Selling, informational and administrative expenses",
+    "-Research and development expenses", "-Acquired in-process research and development expenses",
+    "-Amortization of intangible assets", "-Restructuring charges and certain acquisition-related costs",
+)
+PFE_OTHER = "Other (income)/deductions--net"
+PFE_PRETAX = "Income from continuing operations before provision/(benefit) for taxes on income"
+
+
 # All checks are zero-sum on the filed presentation signs. Excluded lines
 # reconcile operating profit to pretax income, or net income where necessary.
 PROFILES = {
+    AEM: Profile(
+        "CONSOLIDATED STATEMENTS OF INCOME", "R4.htm", 1_000,
+        {"sales": AEM_SUBTOTAL[0], "pretax": AEM_PRETAX},
+        {MINING_SUBTOTAL: AEM_SUBTOTAL, "finance_costs_filed": (AEM_FINANCE,), OTHER_FILED: (AEM_OTHER,),
+         "derivatives_net_gain_filed": ("-" + AEM_DERIVATIVES,), "fx_translation_net_gain": ("-" + AEM_TRANSLATION,)},
+        (AEM_SUBTOTAL + tuple("-" + line for line in (AEM_FINANCE, AEM_DERIVATIVES, AEM_TRANSLATION,
+                                                     AEM_OTHER, AEM_PRETAX)),),
+    ),
+    BMY: Profile(
+        "CONSOLIDATED STATEMENTS OF EARNINGS", "R3.htm", 1_000_000,
+        {"sales": BMY_SUBTOTAL[0], "pretax": BMY_PRETAX},
+        {OPERATING_SUBTOTAL: BMY_SUBTOTAL, OTHER_FILED: (BMY_OTHER,)},
+        (BMY_SUBTOTAL + ("-" + BMY_OTHER, "-" + BMY_PRETAX),),
+    ),
+    JNJ: Profile(
+        "Consolidated Statements of Earnings", "R5.htm", 1_000_000,
+        {"sales": JNJ_SUBTOTAL[0], "pretax": JNJ_PRETAX},
+        {OPERATING_SUBTOTAL: JNJ_SUBTOTAL, OTHER_FILED: (JNJ_OTHER,), "net_interest_expense_filed": JNJ_INTEREST},
+        (JNJ_SUBTOTAL + tuple("-" + line for line in (*JNJ_INTEREST, JNJ_OTHER, JNJ_PRETAX)),),
+    ),
+    MRK: Profile(
+        "Consolidated Statement of Income", "R3.htm", 1_000_000,
+        {"sales": MRK_SUBTOTAL[0], "pretax": MRK_PRETAX},
+        {OPERATING_SUBTOTAL: MRK_SUBTOTAL, OTHER_FILED: (MRK_OTHER,)},
+        (MRK_SUBTOTAL + ("-" + MRK_OTHER, "-" + MRK_PRETAX),),
+    ),
+    PFE: Profile(
+        "Consolidated Statements of Operations", "R3.htm", 1_000_000,
+        {"sales": PFE_SUBTOTAL[0], "pretax": PFE_PRETAX},
+        {OPERATING_SUBTOTAL: PFE_SUBTOTAL, OTHER_FILED: (PFE_OTHER,)},
+        (PFE_SUBTOTAL + ("-" + PFE_OTHER, "-" + PFE_PRETAX),),
+    ),
     (1017413, "0001017413-26-000018"): Profile(
         "Consolidated Statements of Earnings", "R4.htm", 1_000_000,
         {"sales": "Revenue", "pretax": "Earnings before taxes"},
@@ -209,15 +290,18 @@ PROFILES = {
 # consolidated operating-profit input. Keep that distinction visible.
 REVIEWED_GAPS = {
     (8670, "0000008670-26-000030"): "Operating and corporate financing need to be separated. ADP earns interest on client funds and includes related borrowing expense in its adjusted measure.",
-    (2809, "0001104659-26-032153"): "The income statement groups mining costs with derivatives, currency effects and other expenses. Their operating scope needs a note-level reconciliation.",
-    (14272, "0000014272-26-000004"): "The other-income and expense line includes financing, litigation and other items. It needs a note-level reconciliation.",
+    AEM: "The mining subtotal reconciles to pretax income. Other expenses and the combined currency and commodity derivative lines have mixed scopes.",
+    BMY: "Financing and investment items are separated in the pretax bridge. The remaining other-income and expense lines include royalties, litigation and acquisition items.",
     (DEERE, DEERE_PINNED): "Deere reports operating profit by segment. Its consolidated reconciliation includes Financial Services interest and groups corporate costs with nonoperating items.",
     (40545, "0000040545-26-000008"): "GE reports adjusted aerospace operating profit and separate run-off insurance results. The consolidated pretax bridge includes other nonoperating items.",
     (51143, "0000051143-26-000010"): "IBM reports profit by business segment and bridges the segment total to consolidated pretax income. Unallocated corporate items include operating and nonoperating amounts.",
-    (200406, "0000200406-26-000016"): "The other-income and expense line mixes operating and nonoperating items. The note disclosures need to be reconciled before deriving an operating subtotal.",
-    (310158, "0000310158-26-000063"): "The other-income and expense line includes financing, investment and commercialization-related items. It needs a note-level reconciliation.",
-    (78003, "0000078003-26-000026"): "Other deductions include intangible asset impairments and financing expenses. The operating items need a note-level reconciliation.",
+    JNJ: "The filed operating-cost subtotal and net interest reconcile to pretax income. The other-income breakdown is rounded to $100 million and includes a mixed residual.",
+    MRK: "The pretax bridge separates financing, investments and non-service pension items. Exchange losses and the mixed other-income line are still in the resulting measure.",
+    PFE: "The pretax bridge separates financing, investments and non-service pension items. It retains operating impairments, litigation and the mixed other-income line.",
 }
+
+
+RECURRING_GAPS = recurring_annual_rules(REVIEWED_GAPS)
 
 
 def gap_reason(cik, report):
@@ -225,7 +309,8 @@ def gap_reason(cik, report):
         return REVIEWED_GAPS[(ADP, "0000008670-26-000030")]
     if deere_business_scopes(cik, report):
         return REVIEWED_GAPS[(DEERE, DEERE_PINNED)]
-    return REVIEWED_GAPS.get((cik, report["accession"]))
+    key = annual_rule_key(cik, report, REVIEWED_GAPS, RECURRING_GAPS)
+    return REVIEWED_GAPS.get(key)
 
 
 RECURRING = recurring_annual_rules(PROFILES)
@@ -237,6 +322,14 @@ def profile_for(cik, report):
 
 def supported(cik, report):
     return profile_for(cik, report) is not None
+
+
+def income_tag(field, parts):
+    if field == "ebit":
+        return OPERATING_TAG
+    if field in {MINING_SUBTOTAL, OPERATING_SUBTOTAL, "net_interest_expense_filed"}:
+        return INCOME_SUBTOTAL_TAG
+    return parts[0]["tag"]
 
 
 def enrich_operating(cache, cik, report, statement):
@@ -289,13 +382,82 @@ def enrich_operating(cache, cik, report, statement):
         if key == "ebit" and "ebit" in facts and abs(facts["ebit"]["value"] - value) > profile.tolerance:
             raise ValueError("Operating-income derivation disagrees with the filed subtotal")
         facts[key] = {
-            "value": value, "tag": OPERATING_TAG if key == "ebit" else parts[0]["tag"],
+            "value": value, "tag": income_tag(key, parts),
             "unit": statement["currency"], "start": statement["start"], "form": report["form"],
             "filed": report["filed"], "accession": report["accession"], "url": report["url"], "source": ENDPOINT,
             "sha256": receipt["sha256"], "components": parts, **evidence,
-            "locator": "Reconciled from filed income statement lines" if key == "ebit" else parts[0]["line"],
+            "locator": ("Reconciled from filed income statement lines"
+                        if income_tag(key, parts) in {OPERATING_TAG, INCOME_SUBTOTAL_TAG} else parts[0]["line"]),
         }
+    if not scoped_income_reconciles(cik, report, facts):
+        raise ValueError("Published income components do not reconcile to the annual statement")
     result = {**statement, "facts": facts, "income_profiled": True}
     if profile.revised_sales:
         result["sales_basis"] = SALES_BASIS
     return result
+
+
+
+# These bridges remove only the named, separately disclosed items. They do not
+# substitute for EBIT when the balance of the note has a mixed scope.
+PRETAX_BEFORE_FINANCE_PORTFOLIO = "pretax_before_financing_and_portfolio"
+PRETAX_BEFORE_FINANCE_BENEFITS = "pretax_before_financing_portfolio_and_nonservice_benefits"
+PRETAX_SCOPES = {
+    AEM[0]: (PRETAX_BEFORE_FINANCE_PORTFOLIO, ("finance_costs_filed",), {
+        OTHER: ("Interest income", "Loss on sale of equity securities"),
+        DERIVATIVES: ("Unrealized gain on warrants",),
+    }),
+    BMY[0]: (PRETAX_BEFORE_FINANCE_PORTFOLIO, (), {
+        OTHER: ("Interest expense", "Investment income", "Loss on debt redemption (Note 10)",
+                "Equity investment (gains)/losses, net (Note 9)"),
+    }),
+    MRK[0]: (PRETAX_BEFORE_FINANCE_BENEFITS, (), {
+        OTHER: ("Interest income", "Interest expense", "Income from investments in equity securities, net (1)",
+                "Net periodic defined benefit plan (credit) cost other than service cost"),
+    }),
+    PFE[0]: (PRETAX_BEFORE_FINANCE_BENEFITS, (), {
+        OTHER: ("Interest income", "Interest expense (a)",
+                "Net (gains)/losses recognized during the period on equity securities (b)",
+                "Net periodic benefit costs/(credits) other than service costs", "Haleon equity method (income)/loss (e)"),
+    }),
+}
+
+
+def scoped_pretax_facts(cik, report, period):
+    profile = profile_for(cik, report)
+    if cik not in PRETAX_SCOPES or not profile:
+        return {}
+    field, face_fields, note_terms = PRETAX_SCOPES[cik]
+    facts = period["facts"]
+    if not {"pretax", OTHER_FILED, *face_fields, *note_terms.keys()} <= facts.keys():
+        return {}
+    pretax = facts["pretax"]
+    parts = [{**pretax, "sign": 1, "line": profile.anchors["pretax"], "table_url": pretax["url"]}]
+    for key in face_fields:
+        item = facts[key]
+        parts.append({**item, "sign": 1, "line": item["locator"]})
+    for note_key, terms in note_terms.items():
+        note = facts[note_key]
+        if note_key == OTHER and note["value"] != facts[OTHER_FILED]["value"]:
+            raise ValueError("Annual other-income note differs from the consolidated income statement")
+        if note_key == DERIVATIVES and note["value"] != -facts["derivatives_net_gain_filed"]["value"]:
+            raise ValueError("Annual derivatives note differs from the consolidated income statement")
+        for line in terms:
+            part, = [part for part in note["components"] if part["line"] == line]
+            parts.append({**part, "source": note["source"], "sha256": note["sha256"]})
+    return {field: {**pretax, "tag": PRETAX_BRIDGE_TAG,
+                    "value": sum(part["value"] * part["sign"] for part in parts),
+                    "locator": "Filed pretax income with named note adjustments", "components": parts}}
+
+
+def scoped_income_reconciles(cik, report, facts):
+    profile = profile_for(cik, report)
+    if not profile or OTHER_FILED not in profile.fields:
+        return True
+    parts = {label: facts[key]["value"] for key, label in profile.anchors.items()}
+    for key in profile.fields:
+        for part in facts[key]["components"]:
+            if parts.setdefault(part["line"], part["value"]) != part["value"]:
+                return False
+    return all(abs(sum((-1 if term.startswith("-") else 1) * parts[term.removeprefix("-")]
+                       for term in check)) <= profile.tolerance for check in profile.checks)

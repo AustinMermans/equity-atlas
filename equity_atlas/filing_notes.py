@@ -41,6 +41,7 @@ class Note:
     headers: tuple[str, ...] = ()
     segment_row: str | None = None
     anchor_note: str | None = None
+    deductions: tuple[str, ...] = ()
 
 
 PROFILES = {
@@ -70,6 +71,10 @@ PROFILES = {
                 "Loss on debt redemption (Note 10)", "Contingent consideration (Note 9)",
                 "Equity investment (gains)/losses, net (Note 9)", "Integration expenses (Note 6)",
                 "Acquisition expense", "Other (b)",
+            ), outputs=(
+                ("divestiture_royalty_expense_income", "Royalty income - divestitures (Note 4)"),
+                ("royalty_licensing_expense_income", "Royalty and licensing income (Note 4)"),
+                ("loss_on_debt_redemption", "Loss on debt redemption (Note 10)"),
             ),
         ),
     },
@@ -147,13 +152,28 @@ PROFILES = {
         ),
     },
     (200406, "10-K"): {
+        "jnj_segment_pretax_bridge": Note(
+            "Management discussion · Segment and worldwide income before tax",
+            "not allocated to segments", PRETAX, "Worldwide income before tax", (
+                "Innovative Medicine", "MedTech", "(Income) Expenses not allocated to segments (2)",
+            ), date_format="Income Before Tax {year}", anchor_sign=1, title_phrase="income before tax by segment",
+            deductions=("(Income) Expenses not allocated to segments (2)",), outputs=(
+                ("jnj_innovative_medicine_pretax", "Innovative Medicine"),
+                ("jnj_medtech_pretax", "MedTech"),
+                ("jnj_unallocated_expense_income", "(Income) Expenses not allocated to segments (2)"),
+            ),
+        ),
         OTHER: Note(
             "Management discussion · Other income and expense, rounded to $100 million",
             "Litigation Employee benefit plan Monetization royalty rights Other Income Expense Net",
             OTHER_NONOPERATING, "Total Other (Income) Expense, Net", (
                 "Litigation related (1)", "Employee benefit plan related", "Changes in the fair value of securities (2)",
                 "Acquisition, Integration and Divestiture related (3)", "Monetization of royalty rights", "Other",
-            ), scale=1_000_000_000, date_format="{year}", rounding_increment=100_000_000,
+            ), scale=1_000_000_000, date_format="{year}", rounding_increment=100_000_000, outputs=(
+                ("litigation_expense_income_rounded", "Litigation related (1)"),
+                ("employee_benefit_expense_income_rounded", "Employee benefit plan related"),
+                ("securities_fair_value_expense_income_rounded", "Changes in the fair value of securities (2)"),
+            ),
         ),
     },
     (858877, "10-K"): {
@@ -174,6 +194,11 @@ PROFILES = {
                 "Income from collaborations, out-licensing arrangements and sales of compound/product rights",
                 "Net periodic benefit costs/(credits) other than service costs", "Certain legal matters, net (c)",
                 "Certain asset impairments (d)", "Haleon equity method (income)/loss (e)", "Other, net (f)",
+            ), outputs=(
+                ("asset_impairments_in_other_expense", "Certain asset impairments (d)"),
+                ("litigation_in_other_expense", "Certain legal matters, net (c)"),
+                ("collaboration_licensing_expense_income",
+                 "Income from collaborations, out-licensing arrangements and sales of compound/product rights"),
             ),
         ),
     },
@@ -224,7 +249,8 @@ def reconciles(note, total, amounts, anchor, reported_anchor=None):
     anchored = note.anchor_sign * reported
     return (
         abs(anchored - anchor) <= rounding // 2 and
-        abs(sum(amounts.values()) - total) <= (len(amounts) + 1) * rounding // 2 and
+        abs(sum(-amount if line in note.deductions else amount for line, amount in amounts.items()) - total)
+        <= (len(amounts) + 1) * rounding // 2 and
         (not rounding or all(value % rounding == 0 for value in (total, *amounts.values())))
     )
 
@@ -325,6 +351,8 @@ def note_line_facts(cik, report, facts):
                 "tag": LINE_TAG, "value": part["sign"] * part["value"],
                 "locator": f"{parent['locator']} · {line}", "components": [part],
             }
+            if note.rounding_increment >= 100_000_000:
+                result[field]["rounding_increment"] = note.rounding_increment
     return result
 
 

@@ -138,6 +138,17 @@ for symbol, key, amount in OTHER_CASH_FLOWS:
         raise SystemExit(f"{symbol} {key}: expected {amount}")
     checked += 1
 INCOME_STATEMENT = {
+    "AEM": ("USD", {"mining_profit_before_financial_and_other": 6_638_437_000, "finance_costs_filed": 91_145_000,
+                    "derivatives_net_gain_filed": 223_960_000, "fx_translation_net_gain": 25_654_000,
+                    "other_income_expense_filed": 92_995_000, "pretax_before_financing_and_portfolio": 6_665_884_000}),
+    "BMY": ("USD", {"operating_profit_before_other_items": 10_002_000_000, "other_income_expense_filed": 674_000_000,
+                    "pretax_before_financing_and_portfolio": 10_709_000_000}),
+    "JNJ": ("USD", {"operating_profit_before_other_items": 25_287_000_000, "other_income_expense_filed": -7_209_000_000,
+                    "net_interest_expense_filed": -85_000_000}),
+    "MRK": ("USD", {"operating_profit_before_other_items": 21_218_000_000, "other_income_expense_filed": 151_000_000,
+                    "pretax_before_financing_portfolio_and_nonservice_benefits": 21_098_000_000}),
+    "PFE": ("USD", {"operating_profit_before_other_items": 14_244_000_000, "other_income_expense_filed": 6_724_000_000,
+                    "pretax_before_financing_portfolio_and_nonservice_benefits": 8_977_000_000}),
     "ADP": ("USD", {"ebit": 5_738_800_000, "client_funds_interest_expense": 318_300_000,
                      "client_funds_interest_income_corporate": 278_100_000,
                      "corporate_interest_expense_other": 141_000_000, "corporate_interest_income_other": 92_900_000}),
@@ -208,7 +219,8 @@ ANNUAL_NOTES = {
         "ibm_segment_profit_note": (16364, (9920, 2464, 3458, 521)),
         "ibm_debt_split_note": (61260, (15093, 46167)),
     },
-    "JNJ": {"other_income_expense_note": (-7200, (-6000, -500, -400, 200, 0, -500))},
+    "JNJ": {"other_income_expense_note": (-7200, (-6000, -500, -400, 200, 0, -500)),
+            "jnj_segment_pretax_bridge": (32581, (22266, 4113, -6202))},
 }
 for symbol, fields in ANNUAL_NOTES.items():
     period = rows[symbol]["statement"]
@@ -220,6 +232,13 @@ for symbol, fields in ANNUAL_NOTES.items():
             raise SystemExit(f"{symbol} {key}: annual note amounts changed")
         checked += 1 + len(expected)
 SCOPED_LINES = {
+    "BMY": {"divestiture_royalty_expense_income": -1129, "royalty_licensing_expense_income": -1093,
+            "loss_on_debt_redemption": 356},
+    "JNJ": {"jnj_innovative_medicine_pretax": 22266, "jnj_medtech_pretax": 4113, "jnj_unallocated_expense_income": -6202,
+            "litigation_expense_income_rounded": -6000, "employee_benefit_expense_income_rounded": -500,
+            "securities_fair_value_expense_income_rounded": -400},
+    "PFE": {"asset_impairments_in_other_expense": 4940, "litigation_in_other_expense": 1057,
+            "collaboration_licensing_expense_income": -192},
     "GE": {"runoff_insurance_pretax_income": 1002, "runoff_insurance_tax_effect": -125,
            "runoff_insurance_costs": 2541, "runoff_insurance_operating_profit": 992},
     "IBM": {"ibm_reportable_segment_profit": 16364, "ibm_net_interest_ex_financing": -1312,

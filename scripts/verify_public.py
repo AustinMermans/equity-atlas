@@ -29,7 +29,9 @@ from equity_atlas.sec_workbook import (CAPEX_COMPONENTS as WORKBOOK_CAPEX_COMPON
                                        DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE,
                                        SOURCE as WORKBOOK_SOURCE, workbook_url)
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
-from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason, profile_for as income_profile_for
+from equity_atlas.operating import (INCOME_SUBTOTAL_TAG, OPERATING_TAG, PRETAX_BRIDGE_TAG, SALES_BASIS,
+                                    PROFILES as INCOME_PROFILES, gap_reason, income_tag,
+                                    profile_for as income_profile_for, scoped_income_reconciles, scoped_pretax_facts)
 from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT, table_belongs_to_filing
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_DAILY_QUOTES, TWSE_ISSUERS, TWSE_ISSUERS_CSV
 
@@ -97,7 +99,7 @@ def verify_income_fact(period, report, cik, profile, key, fact):
             part["tag"] == tags.get(part["line"], part["tag"]) and
             math.isfinite(part["value"]) for part, term in zip(parts, terms)) and
         fact["value"] == sum(part["sign"] * part["value"] for part in parts) and
-        fact["tag"] == (OPERATING_TAG if key == "ebit" else parts[0]["tag"])
+        fact["tag"] == income_tag(key, parts)
     )
 
 
@@ -182,6 +184,12 @@ def verify_period(period, row):
     lines = note_line_facts(selected_cik, annual_report, period["facts"]) if annual_report else {}
     if any(period["facts"].get(key) != value for key, value in lines.items()):
         raise SystemExit("Annual note line differs from the reconciled source")
+    try:
+        pretax_scope = scoped_pretax_facts(selected_cik, annual_report, period) if annual_report else {}
+    except (ValueError, KeyError, TypeError) as exc:
+        raise SystemExit("Unverified annual pretax bridge") from exc
+    if any(period["facts"].get(key) != value for key, value in pretax_scope.items()):
+        raise SystemExit("Annual pretax scope differs from the reconciled source")
     scope_evidence = period.get("annual_business_scopes")
     scoped = {}
     if scope_evidence:
@@ -245,13 +253,15 @@ def verify_period(period, row):
                     for p in components) and
                 all(fact[k] == components[0][k] for k in ("url", "accession", "filed", "form", "start", "unit"))
             )
-        if fact["tag"] == OPERATING_TAG or (income_profile and key in income_profile.fields and source == RENDERED_ENDPOINT):
+        if fact["tag"] in {OPERATING_TAG, INCOME_SUBTOTAL_TAG} or (income_profile and key in income_profile.fields and source == RENDERED_ENDPOINT):
             official = bool(income_profile and key in income_profile.fields and
                             verify_income_fact(period, annual_report, selected_cik, income_profile, key, fact))
         if fact["tag"] == DEPRECIATION_TAG:
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == BUSINESS_TAG:
             official = scoped.get(key) == fact
+        if fact["tag"] == PRETAX_BRIDGE_TAG:
+            official = pretax_scope.get(key) == fact
         if fact["tag"] == NOTE_LINE_TAG:
             official = lines.get(key) == fact
         if fact["tag"] == NOTE_TAG:
@@ -359,7 +369,7 @@ for row in rows:
                 expected_basis = SALES_BASIS if profile and profile.revised_sales else None
                 if (not profile or not period.get("income_profiled") or period.get("sales_basis") != expected_basis or
                         any(period["facts"].get(key, {}).get("source") != RENDERED_ENDPOINT
-                            for key in profile.fields)):
+                            for key in profile.fields) or not scoped_income_reconciles(cik, report, period["facts"])):
                     raise SystemExit(f"Refusing to lose reconciled income statement fields for {row['symbol']}")
                 income_profiles += 1
             elif period.get("income_profiled") or period.get("sales_basis"):
