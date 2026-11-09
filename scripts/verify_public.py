@@ -21,7 +21,9 @@ from equity_atlas.edgar import REVIEWED_AMENDMENTS, issuer_instance_url
 from equity_atlas.issuer_claims import claim_copy
 from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
-from equity_atlas.sec_workbook import DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
+from equity_atlas.sec_workbook import (CAPEX_COMPONENTS as WORKBOOK_CAPEX_COMPONENTS, CAPEX_TAG as WORKBOOK_CAPEX_TAG,
+                                       DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE,
+                                       SOURCE as WORKBOOK_SOURCE, workbook_url)
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
 from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason, profile_for as income_profile_for
 from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT, table_belongs_to_filing
@@ -225,6 +227,11 @@ def verify_period(period, row):
                             verify_income_fact(period, annual_report, selected_cik, income_profile, key, fact))
         if fact["tag"] == DEPRECIATION_TAG:
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
+        if fact["tag"] == WORKBOOK_CAPEX_TAG:
+            official = bool(official and workbook and selected_cik == 1046179 and key == "capex" and
+                            fact.get("components") == list(WORKBOOK_CAPEX_COMPONENTS) and
+                            all(k in period["facts"] and period["facts"][k]["value"] >= 0 for k in WORKBOOK_CAPEX_COMPONENTS) and
+                            fact["value"] == sum(period["facts"][k]["value"] for k in WORKBOOK_CAPEX_COMPONENTS))
         if fact["tag"] == WORKBOOK_DA_TAG:
             official = bool(official and workbook and selected_cik == 1046179 and key == "da" and
                             fact.get("components") == list(DA_COMPONENTS) and all(k in period["facts"] for k in DA_COMPONENTS) and
@@ -270,11 +277,14 @@ for row in rows:
             period = row["statement"]
             report = period.get("report")
             cik = annual_cik(row, report) if report else None
-            profiled = period["facts"].get("capex", {}).get("tag") == CAPEX_TAG
+            profiled = period["facts"].get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG}
             if report and (cik, report["accession"]) in CAPEX_PINNED and not profiled:
                 raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
             if profiled and report and not required_additional_fields(cik, report) <= period["facts"].keys():
                 raise SystemExit(f"Missing a reviewed separate cash outflow for {row['symbol']}")
+            if cik == 1046179 and period.get("route") == WORKBOOK_ROUTE:
+                if period["facts"].get("capex", {}).get("tag") != WORKBOOK_CAPEX_TAG:
+                    raise SystemExit("Missing TSMC workbook cash-investment total")
             capex_profiles += profiled
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]

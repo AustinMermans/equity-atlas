@@ -10,6 +10,8 @@ const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—'
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
 const fieldNames={
+ capex_ppe:'Cash purchases of property, plant and equipment',
+ capex_intangibles:'Cash purchases of intangible assets',
  capex_mixed_outflow:'Combined investing outflow with an unallocated asset component',
  capex_financing_payment:'Financing cash paid on previously acquired assets',
  da_with_writeoffs:'Depreciation, amortization and write-offs',

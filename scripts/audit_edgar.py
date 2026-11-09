@@ -24,7 +24,7 @@ EXPECTED = {
                                    "cfo_continuing": 1966292, "cfo_discontinued": -20675, "capex": 457681}),
     "TSM": ("2025-12-31", "TWD", {"sales": 3809054.3, "net_parent": 1697604.0,
                                   "net_consolidated": 1695124.9, "book": 5355038.7,
-                                  "cash": 2767856.4, "capex": 1272410.5}),
+                                  "cash": 2767856.4, "capex": 1282557.4}),
 }
 PER_SHARE = {"eps_basic": (45.89, "INR/shares"), "eps_diluted": (45.75, "INR/shares"),
              "eps_ads_basic": (137.67, "INR/ADS"), "eps_ads_diluted": (137.25, "INR/ADS")}
@@ -77,6 +77,7 @@ CASH_INVESTMENT = {
     "SNOW": ("USD", 104_729_000),
     "TMUS": ("USD", 12_523_000_000),
     "UL": ("EUR", 1_591_000_000),
+    "TSM": ("TWD", 1_282_557_400_000),
     "ABNB": ("USD", 33_000_000), "ADP": ("USD", 665_100_000),
     "APP": ("USD", 28_791_000), "ASML": ("EUR", 1_631_200_000),
     "BABA": ("CNY", 126_937_000_000), "BP": ("USD", 13_221_000_000),
@@ -108,6 +109,8 @@ OTHER_CASH_FLOWS = (
     ("BP", "capex_reported_total", 14_533_000_000),
     ("SHEL", "capex_reported_total", 20_915_000_000),
     ("PDD", "cfo", 106_938_690_000),
+    ("TSM", "capex_ppe", 1_272_410_500_000),
+    ("TSM", "capex_intangibles", 10_146_900_000),
 )
 for symbol, key, amount in OTHER_CASH_FLOWS:
     if rows[symbol]["statement"]["facts"].get(key, {}).get("value") != amount:

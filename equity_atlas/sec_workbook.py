@@ -14,6 +14,8 @@ ROUTE = "sec_workbook"
 SOURCE = "Open10K · SEC data"
 DA_TAG = f"{ROUTE}:DepreciationAmortizationSum"
 DA_COMPONENTS = ("depreciation", "amortization")
+CAPEX_TAG = f"{ROUTE}:CashCapitalInvestmentSum"
+CAPEX_COMPONENTS = ("capex_ppe", "capex_intangibles")
 BASE = "https://files.open10k.com/"
 MAIN = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 REL_ID = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
@@ -109,7 +111,8 @@ STATEMENTS = {
             **IFRS_INCOME, "sales": "RevenueFromContractsWithCustomers", "interest": "FinanceCosts",
         },
         "CONSOLIDATED STATEMENTS OF CASH FLOWS": {
-            **IFRS_CASH, "capex": "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+            **IFRS_CASH, "capex_ppe": "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+            "capex_intangibles": "PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities",
             "depreciation": "AdjustmentsForDepreciationExpense", "amortization": "AdjustmentsForAmortisationExpense",
         },
     },
@@ -238,11 +241,14 @@ def read_workbook(blob, receipt, report, cik):
             "tag": f"{ROUTE}:NoncurrentBorrowingsSum", "components": components,
             "locator": "Consolidated financial position · Noncurrent bonds payable + long-term bank loans",
         }
-        facts["da"] = {
-            **facts[DA_COMPONENTS[0]], "value": sum(facts[k]["value"] for k in DA_COMPONENTS),
-            "tag": DA_TAG, "components": list(DA_COMPONENTS),
-            "locator": "Consolidated cash flows · Depreciation expense + amortization expense",
-        }
+        for field, tag, components, label in (
+            ("da", DA_TAG, DA_COMPONENTS, "Depreciation expense + amortization expense"),
+            ("capex", CAPEX_TAG, CAPEX_COMPONENTS, "Purchases of property, plant and equipment + purchases of intangible assets"),
+        ):
+            facts[field] = {
+                **facts[components[0]], "value": sum(facts[k]["value"] for k in components),
+                "tag": tag, "components": list(components), "locator": f"Consolidated cash flows · {label}",
+            }
     result = {"end": str(end), "start": start, "currency": currency, "filing": report["accession"], "facts": facts,
               "conflicts": [], "period_kind": "annual", "accounting": accounting, "report": report, "route": ROUTE}
     check = balance_check(result)
@@ -251,6 +257,8 @@ def read_workbook(blob, receipt, report, cik):
             abs(v["net_consolidated"] - v["net_parent"] - v["net_nci"]) > 100_000 or
             v["pretax"] - v["tax"] + v.get("net_discontinued", 0) != v["net_consolidated"]):
         raise ValueError("SEC workbook consolidated amounts do not reconcile")
+    if cik == 1046179 and any(v[key] < 0 for key in CAPEX_COMPONENTS):
+        raise ValueError("TSMC cash-investment components must be outflows")
     if cik == 313838 and (v["net_continuing"] + v["net_discontinued"] != v["net_consolidated"] or
                           v["cfo_continuing"] + v["cfo_discontinued"] != v["cfo"]):
         raise ValueError("Sony continuing and discontinued results do not reconcile")

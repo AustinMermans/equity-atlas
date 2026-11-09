@@ -26,7 +26,7 @@ from .inline import inline_url, periods_from_inline
 from .issuer_claims import add_claims, claim_copy
 from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
-from .sec_workbook import DA_TAG as WORKBOOK_DA_TAG, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
+from .sec_workbook import CAPEX_TAG as WORKBOOK_CAPEX_TAG, DA_TAG as WORKBOOK_DA_TAG, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, read_workbook, workbook_url
 from .rendered_10q import ROUTE as RENDERED_ROUTE, periods_from_rendered_10q, rendered_10q_url
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
@@ -401,7 +401,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
         "annual_cash_investment_profiled":sum(
-            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") == CAPEX_TAG for r in sec_rows
+            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG} for r in sec_rows
         ),
         "annual_exhibits_profiled":sum(bool((r["statement"] or {}).get("annual_earnings_exhibit")) for r in sec_rows),
         "annual_income_profiled":sum(bool((r["statement"] or {}).get("income_profiled")) for r in sec_rows),
