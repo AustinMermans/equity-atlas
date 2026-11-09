@@ -436,6 +436,8 @@ if rows["TD"]["statement"]["facts"]["preferred_and_other_equity"]["value"] != 11
 checked += 1
 # Annual cash scopes independently reconciled to the selected filings.
 CASH_BALANCES = {
+    "ABNB": ("USD", {"cash": 6560, "cash_including_restricted": 13486, "cash_held_for_customers": 6891,
+                     "restricted_cash": 35}),
     "AXP": ("USD", {"cash": 47623, "cash_including_restricted": 47792, "restricted_cash": 169}),
     "BAC": ("USD", {"cash": 225345, "cash_including_restricted": 231845, "restricted_cash": 6500}),
     "BRK-B": ("USD", {"cash": 51877, "cash_including_restricted": 52569, "restricted_cash": 692}),
@@ -446,14 +448,20 @@ CASH_BALANCES = {
     "GE": ("USD", {"cash_including_restricted": 12392, "insurance_cash": 1264}),
     "GEV": ("USD", {"cash": 8469, "cash_including_restricted": 8848, "restricted_cash": 379}),
     "GILD": ("USD", {"cash": 7564}),
+    "GS": ("USD", {"cash": 149456, "cash_including_restricted": 164259, "restricted_cash": 14803,
+                   "restricted_cash_reported": 14800}),
     "HDB": ("INR", {"cash": 1537828.1, "cash_including_restricted": 2547835.1, "restricted_cash": 1010007}),
     "JPM": ("USD", {"cash": 314338, "cash_including_restricted": 343338, "restricted_cash": 29000}),
     "MFG": ("JPY", {"cash": 62606401}), "MMM": ("USD", {"cash": 5235}),
+    "MS": ("USD", {"cash": 81310, "cash_including_restricted": 111695, "restricted_cash": 30385}),
     "MUFG": ("JPY", {"cash_including_restricted": 90378397, "cash_and_bank_deposits": 90369985,
                      "restricted_cash_in_other_assets": 8412}),
     "PG": ("USD", {"cash": 9942}),
     "PGR": ("USD", {"cash": 125, "restricted_cash": 13, "cash_including_restricted": 138}),
     "SBUX": ("USD", {"cash": 3219.8}),
+    "V": ("USD", {"cash": 12938, "cash_including_restricted": 19118, "restricted_cash": 6180,
+                  "cash_held_for_customers": 4349, "restricted_cash_litigation": 628,
+                  "restricted_cash_in_other_assets": 1203}),
     "WFC": ("USD", {"cash_including_restricted": 172593}),
 }
 for symbol, (currency, values) in CASH_BALANCES.items():
@@ -466,6 +474,8 @@ for symbol, (currency, values) in CASH_BALANCES.items():
 for symbol in ("BAC", "JPM"):
     if rows[symbol]["statement"]["facts"]["cash"].get("rounding_increment") != 100_000_000:
         raise SystemExit(f"{symbol}: missing restricted-cash source precision")
+if rows["GS"]["statement"]["facts"]["restricted_cash_reported"].get("rounding_increment") != 10_000_000:
+    raise SystemExit("GS: missing segregated-cash source precision")
 for symbol in ("GE", "MUFG", "WFC"):
     period = rows[symbol]["statement"]
     if "cash" in period["facts"] or not period.get("cash_gap"):

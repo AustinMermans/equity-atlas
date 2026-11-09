@@ -19,7 +19,7 @@ from .depreciation import (
 )
 from .parent_equity import enrich_parent_equity, supported as parent_equity_supported
 from .operating import enrich_operating, gap_reason, profile_for as operating_profile, scoped_pretax_facts
-from .cash_balance import cash_gap, enrich_cash
+from .cash_balance import cash_gap, cash_requires_scope_review, enrich_cash
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -223,11 +223,13 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1] = enrich_balance(cache, obj, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual balance sheet for {selected['end']}: {exc}")
-                if selected_filing and "cash" not in history[-1]["facts"]:
+                if selected_filing:
                     try:
                         history[-1] = enrich_cash(cache, obj, meta, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual cash balance for {selected['end']}: {exc}")
+                        if cash_requires_scope_review(cik, selected_filing):
+                            history[-1] = hold_unreconciled(history[-1], "cash")
                     reason = cash_gap(cik, selected_filing, history[-1]["facts"])
                     if reason:
                         history[-1] = {**history[-1], "cash_gap": reason}

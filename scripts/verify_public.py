@@ -14,7 +14,8 @@ from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, AP
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 NET_FIELDS, reports_only_net_purchases, required_additional_fields, valid_capex_components)
 from equity_atlas.cash_balance import (BROAD as CASH_BROAD, GAPS as CASH_GAPS, PROFILED as CASH_PROFILED,
-                                        TAG as CASH_TAG, cash_facts, cash_gap)
+                                        REVIEW_EXISTING as CASH_REVIEW_EXISTING, TAG as CASH_TAG, cash_facts, cash_gap,
+                                        rule_key as cash_rule_key)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
@@ -520,7 +521,8 @@ if "annual_cash_available" in snap["stats"]:
         cik = annual_cik(row, report) if report else None
         key = (cik, report["accession"]) if report else None
         expected_gap = cash_gap(cik, report, facts) if report else None
-        if key in CASH_PROFILED and not period.get("annual_cash_balance"):
+        recurring_review = report and cash_rule_key(cik, report) in CASH_REVIEW_EXISTING
+        if (key in CASH_PROFILED or recurring_review) and not period.get("annual_cash_balance"):
             raise SystemExit(f"Missing reviewed cash evidence for {row['symbol']}")
         if (period.get("cash_gap") != expected_gap or (key in CASH_GAPS and "cash" in facts) or
                 ("cash" not in facts and (not expected_gap or CASH_BROAD not in facts))):
