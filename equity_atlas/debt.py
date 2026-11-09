@@ -6,7 +6,7 @@ import re
 from .balance_sheet import ASSETS, CLAIMS, CURRENT, NONCURRENT, TITLES, TOTAL
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
-from .issuer_20f import MIRRORS
+from .issuer_20f import MIRRORS, column, pdf_pages
 from .rendered_filing import ENDPOINT, annual_table, filing_tables, scaled, table_belongs_to_filing, valid_table_source
 
 TAG = "derived:FiledDebtCarryingAmount"
@@ -23,6 +23,8 @@ ADP = (8670, "0000008670-26-000030")
 AGNICO = (2809, "0001104659-26-032153")
 ALIBABA = (1577552, "0001193125-26-231755")
 ARM = (1973239, "0001973239-26-000097")
+BERKSHIRE = (1067983, "0001193125-26-083899")
+PALANTIR = (1321655, "0001321655-26-000011")
 CAT = (18230, "0000018230-26-000008")
 CME = (1156375, "0001156375-26-000009")
 EQUINIX = (1101239, "0001101239-26-000032")
@@ -35,6 +37,20 @@ RBC = (1000275, "0001193125-25-305927")
 SMFG = (1022837, "0001193125-26-283871")
 TD = (947263, "0001562762-25-000289")
 UBS = (1610520, "0001610520-26-000023")
+PDF_SOURCES = {
+    PALANTIR: ("10-K", "https://investors.palantir.com/files/2025%20FY%20PLTR%2010-K.pdf"),
+    HSBC: ("20-F", "https://www.hsbc.com/-/files/hsbc/investors/hsbc-results/2025/annual/pdfs/"
+           "hsbc-holdings-plc/260226-hsbc-holdings-plc-form-20-f.pdf"),
+}
+BERKSHIRE_SCOPES = ("insurance and other", "railroad, utilities and energy")
+BERKSHIRE_LINE = "Notes payable and other borrowings"
+BERKSHIRE_NOTES = tuple(("disclosed:NotesPayableAndOtherBorrowings", f"{group.capitalize()} · {BERKSHIRE_LINE}")
+                        for group in BERKSHIRE_SCOPES)
+PALANTIR_ZERO = ("disclosed:NoOutstandingBorrowings", "Note 6 · No outstanding debt under the 2014 Credit Facility")
+HSBC_NOTES = (
+    ("disclosed:TotalDebtSecuritiesInIssue", "Note 26 · Group debt securities across measurement categories"),
+    ("disclosed:TotalSubordinatedLiabilities", "Note 29 · Group subordinated liabilities across measurement categories"),
+)
 GEV_LONG_TERM = ("disclosed:FinanceLeaseLiabilitiesAndOtherLongTermBorrowings",
                  "Finance lease liabilities and other long-term borrowings")
 FUNDING = {
@@ -96,6 +112,8 @@ FACE = {
         (CONVERTIBLE, "Non-current convertible unsecured senior notes"),
     ),
     ARM: (),
+    BERKSHIRE: (),
+    PALANTIR: (),
     CAT: (("us-gaap:ShortTermBorrowings", "Short-term borrowings"),),
     CME: (("us-gaap:ShortTermBorrowings", "Short-term debt"), ("us-gaap:UnsecuredLongTermDebt", "Long-term debt")),
     EQUINIX: (
@@ -140,6 +158,9 @@ FINANCE_LEASE_NOTES = (
 )
 NOTES = {
     ARM: FINANCE_LEASE_NOTES,
+    BERKSHIRE: BERKSHIRE_NOTES,
+    HSBC: HSBC_NOTES,
+    PALANTIR: (PALANTIR_ZERO,),
     CAT: (TERM, CAT_CURRENT),
     GE_VERNOVA: (("us-gaap:ShortTermBorrowings", "Other liabilities note · Short-term borrowings"),
                  FINANCE_LEASE_NOTES[0], GEV_LONG_TERM),
@@ -152,7 +173,7 @@ SEPARATE_LEASES = {AGNICO: (("ifrs-full:CurrentLeaseLiabilities", "Lease obligat
                               ("ifrs-full:NoncurrentLeaseLiabilities", "Lease obligations (Note 13)")),
                    EQUINOR: (LEASES_CURRENT, LEASES_NONCURRENT), SPOTIFY: (LEASES_NONCURRENT,)}
 LEASE_NOTES = {SPOTIFY: (("ifrs-full:CurrentLeaseLiabilities", "Leases note · Current lease liabilities"),)}
-RECURRING = recurring_annual_rules(FACE)
+RECURRING = recurring_annual_rules(FACE.keys() - {PALANTIR})
 BORROWING = re.compile(r"\b(debt|borrowings?|commercial paper|(?:convertible|exchangeable|senior) (?:senior )?notes|"
                        r"financ(?:e|ing) lease liabilities|securitization borrowings)\b", re.I)
 
@@ -163,6 +184,12 @@ def rule_key(cik, report):
 
 def supported(cik, report):
     return rule_key(cik, report) in FACE
+
+
+def note_lines(key, report):
+    if key in PDF_SOURCES and report["accession"] != key[1]:
+        return ()
+    return NOTES.get(key, ())
 
 
 def debt_facts(cik, report, period, evidence):
@@ -188,7 +215,7 @@ def debt_facts(cik, report, period, evidence):
     if ((period["period_kind"], period["filing"], period["end"]) != ("annual", report["accession"], report["end"])
             or not all(anchor(field) for field in ("assets", "liabilities"))
             or tuple((part["tag"], part["line"]) for part in parts) != FACE[key]
-            or tuple((part["tag"], part["line"]) for part in notes) != NOTES.get(key, ())
+            or tuple((part["tag"], part["line"]) for part in notes) != note_lines(key, report)
             or tuple((part["tag"], part["line"]) for part in leases) != SEPARATE_LEASES.get(key, ())
             or tuple((part["tag"], part["line"]) for part in lease_notes) != LEASE_NOTES.get(key, ())):
         raise ValueError("Borrowing evidence does not match the annual balance sheet or reviewed component scopes")
@@ -198,36 +225,47 @@ def debt_facts(cik, report, period, evidence):
                 type(part["value"]) is not int or not 0 <= part["value"] <= evidence["liabilities"]
                 or not re.fullmatch(r"[0-9a-f]{64}", part["sha256"])):
             raise ValueError("Borrowing component does not match the annual report")
-    tagged_notes = [part for part in notes + lease_notes if part["tag"] not in {CAT_CURRENT[0], GEV_LONG_TERM[0]}]
+    disclosed_notes = {CAT_CURRENT[0], GEV_LONG_TERM[0], BERKSHIRE_NOTES[0][0],
+                       PALANTIR_ZERO[0], *(tag for tag, _ in HSBC_NOTES)}
+    tagged_notes = [part for part in notes + lease_notes if part["tag"] not in disclosed_notes]
     if key == CAT:
         current = notes[-1]
         if (not valid_table_source(current, report, CAT_NOTE_FILE if key == (cik, report["accession"]) else None)
                 or sum(evidence["current_liability_components"]) + current["value"] != evidence["current_liabilities"]
                 or not 0 <= evidence["current_liabilities"] <= evidence["liabilities"]):
             raise ValueError("Caterpillar current debt does not tie to the classified current liabilities")
-    if key == GE_VERNOVA:
-        long_term = notes[-1]
-        if (long_term["source"] != ENDPOINT or long_term["table_url"] != report["url"]
-                or not re.fullmatch(r"[0-9a-f]{16}", long_term["table_sha256_16"])):
-            raise ValueError("GE Vernova long-term borrowings do not match the filed liabilities note")
+    document_parts = notes[-1:] if key == GE_VERNOVA else notes if key == BERKSHIRE else []
+    if any(part["source"] != ENDPOINT or part["table_url"] != report["url"]
+           or not re.fullmatch(r"[0-9a-f]{16}", part["table_sha256_16"]) for part in document_parts):
+        raise ValueError("Borrowings do not match the filed liabilities note")
+    if key in PDF_SOURCES and notes:
+        form, url = PDF_SOURCES[key]
+        if (report["form"] != form or report["end"] != "2025-12-31" or period["currency"] != "USD"
+                or any(part["source"] != url or "table_url" in part for part in notes)):
+            raise ValueError("Borrowings do not match the reviewed issuer filing copy")
+    if key == PALANTIR and notes[0]["value"] != 0:
+        raise ValueError("A debt balance cannot be inferred from a no-borrowings disclosure")
+    if key == HSBC and notes and any(note["value"] < part["value"] for note, part in zip(notes, parts, strict=True)):
+        raise ValueError("HSBC group totals do not cover their dedicated funding lines")
     if (not valid_table_source(source, report) or not re.fullmatch(r"[0-9a-f]{64}", source["sha256"])
             or any(any(part[k] != v for k, v in source.items()) for part in parts + leases)
             or any(part["source"] != SEC.format(cik) or "table_url" in part for part in tagged_notes)):
         raise ValueError("Unverified borrowing or lease source")
-    value = sum(part["value"] for part in parts + notes)
+    debt_parts = notes if key in FUNDING else parts + notes
+    value = sum(part["value"] for part in debt_parts)
     leases = leases + lease_notes
     if value + sum(part["value"] for part in leases) > evidence["liabilities"]:
         raise ValueError("Borrowing and separately reported leases exceed total liabilities")
+    result = {}
     if key in FUNDING:
         by_line = {(part["tag"], part["line"]): part for part in parts}
-        result = {}
         for field, lines in FUNDING[key].items():
             selected = [by_line[line] for line in lines]
             result[field] = {**selected[0], "tag": TAG, "value": sum(part["value"] for part in selected),
                              "components": selected, "locator": "Consolidated balance-sheet funding line"}
-        return result
-    result = {"debt_total": {**(parts + notes)[0], "tag": TAG, "value": value, "components": parts + notes,
-                             "locator": "Consolidated borrowing at reported carrying amounts"}}
+    if debt_parts:
+        result["debt_total"] = {**debt_parts[0], "tag": TAG, "value": value, "components": debt_parts,
+                                "locator": "Consolidated borrowing at reported carrying amounts"}
     if leases:
         result["lease_liabilities_separate"] = {
             **leases[0], "tag": TAG, "value": sum(part["value"] for part in leases),
@@ -281,6 +319,76 @@ def vernova_long_term_debt(cache, cik, report, currency, short_term, lease_noncu
                   "table_url": table["url"], "table_sha256_16": digests.get(table["url"], "")}
 
 
+def berkshire_debt(cache, cik, report, currency):
+    if currency != "USD" or not report["end"].endswith("-12-31"):
+        raise ValueError("Unexpected Berkshire reporting currency or year-end")
+    tables, digests, receipt = filing_tables(cache, cik, report, BERKSHIRE_LINE)
+    document = [t for t in tables if t["source"] == "document table" and t["url"] == report["url"]]
+    day = f"December 31, {report['end'][:4]}"
+    balance, = (t for t in document if t["title"] == "CONSOLIDATED BALANCE SHEETS / (dollars in millions)"
+                and t["columns"].count(day) == 1)
+    index = balance["columns"].index(day)
+    balance_values = [row[index] for row in balance["rows"] if row[0] == BERKSHIRE_LINE]
+    values = []
+    for group in BERKSHIRE_SCOPES:
+        prefix = f"{BERKSHIRE_LINE} / {BERKSHIRE_LINE} of our {group} businesses"
+        note, = (t for t in document if t["title"].startswith(prefix) and "(dollars in millions)" in t["title"]
+                 and t["columns"].count(day) == 1)
+        col = note["columns"].index(day)
+        total, = (row[col] for row in note["rows"] if not row[0] and type(row[col]) in (int, float))
+        if total != sum(row[col] for row in note["rows"] if row[0] and type(row[col]) in (int, float)):
+            raise ValueError("Berkshire debt note detail does not tie to its carrying amount")
+        values.append(total)
+    if values != balance_values:
+        raise ValueError("Berkshire debt note amounts do not tie to the two consolidated balance-sheet lines")
+    return [scaled(value, 1_000_000) for value in values], {
+        "source": receipt["url"], "sha256": receipt["sha256"], "table_url": report["url"],
+        "table_sha256_16": digests.get(report["url"], ""),
+    }
+
+
+def pdf_debt(cache, key, assets, liabilities, face):
+    form, url = PDF_SOURCES[key]
+    raw, receipt = cache.get(url, 8760)
+    pages = pdf_pages(raw)
+    cover = " ".join(pages[0].split())
+    issuer = "Palantir Technologies Inc." if key == PALANTIR else "HSBC Holdings plc"
+    if f"FORM {form}" not in cover or issuer not in cover or "fiscal year ended December 31, 2025" not in cover:
+        raise ValueError("Issuer PDF cover does not match the selected annual filing")
+    if key == PALANTIR:
+        balance, = (page for page in pages if re.search(r"^ +Consolidated Balance Sheets *$", page, re.M)
+                    and "(in thousands, except per share amounts)" in page and "As of December 31," in page)
+        page, = (page for page in pages if re.search(r"^ *6\. Debt *$", page, re.M)
+                 and re.search(r"^ *7\. Leases *$", page, re.M))
+        note = page.split("6. Debt", 1)[1].split("7. Leases", 1)[0]
+        if not re.search(r"As of December 31, 2025, the Company\s+had no outstanding debt balances "
+                         r"under the 2014 Credit Facility\.", note):
+            raise ValueError("No explicit year-end zero in the Palantir debt note")
+        scale, values = 1_000, [0]
+    else:
+        balance, = (page for page in pages if re.search(r"^ *Consolidated balance sheet\s+at 31 December 2025", page, re.M))
+        securities, = (m[1] for page in pages if
+                       (m := re.search(r"^26 Debt securities in issue\s+HSBC\s+(.*?)^HSBC Holdings *$", page, re.M | re.S)))
+        subordinated, = (m[1] for page in pages if
+                         (m := re.search(r"^29 Subordinated liabilities\s+HSBC’s subordinated liabilities\s+(.*?)"
+                                         r"^Subordinated liabilities rank", page, re.M | re.S)))
+        if any(not re.search(r"^\s*2025 +2024\s*\$m +\$m", note) for note in (securities, subordinated)):
+            raise ValueError("HSBC note columns do not show the expected periods and units")
+        debt = column(securities, "Total debt securities in issue", 2)
+        sub = column(subordinated, "At 31 Dec", 2)
+        amortised = column(subordinated, "At amortised cost", 2)
+        dedicated = column(securities, "At 31 Dec", 2)
+        if (debt + column(securities, "– trading liabilities (Note 24)", 2) +
+                column(securities, "– financial liabilities designated at fair value (Note 25)", 2) != dedicated
+                or amortised + column(subordinated, "Designated at fair value (Note 25)", 2) != sub
+                or [p["value"] for p in face] != [scaled(n, 1_000_000) for n in (dedicated, amortised)]):
+            raise ValueError("HSBC note categories do not tie to the dedicated balance-sheet lines")
+        scale, values = 1_000_000, [debt, sub]
+    if [scaled(column(balance, field, 2), scale) for field in ("Total assets", "Total liabilities")] != [assets, liabilities]:
+        raise ValueError("Issuer PDF assets or liabilities disagree with the SEC balance sheet")
+    return [scaled(value, scale) for value in values], {"source": receipt["url"], "sha256": receipt["sha256"]}
+
+
 def enrich_debt(cache, obj, meta, cik, report, period):
     key = rule_key(cik, report)
     table, index, receipt, table_source = annual_table(cache, cik, report, period, "balance_sheet", None)
@@ -309,6 +417,7 @@ def enrich_debt(cache, obj, meta, cik, report, period):
         current, = find(CURRENT, candidates)
         noncurrent, = find(NONCURRENT, candidates)
         total = [current, noncurrent]
+    assets_value = scaled(rows[assets][index], scale)
     liabilities = sum(scaled(rows[i][index], scale) for i in total)
     scope = range(assets + 1, max(total))
 
@@ -348,8 +457,17 @@ def enrich_debt(cache, obj, meta, cik, report, period):
             raise ValueError(f"Missing exact note fact for {label}")
         return component(tag, label, value, {"source": meta["url"], "sha256": meta["sha256"]})
 
-    evidence = {"assets": scaled(rows[assets][index], scale), "liabilities": liabilities,
-                "face": face, "notes": [note_part(*line) for line in NOTES.get(key, ())], "leases": leases,
+    lines = note_lines(key, report)
+    if key == BERKSHIRE or (key in PDF_SOURCES and lines):
+        if key == BERKSHIRE:
+            values, source = berkshire_debt(cache, cik, report, period["currency"])
+        else:
+            values, source = pdf_debt(cache, key, assets_value, liabilities, face)
+        notes = [component(tag, label, value, source) for (tag, label), value in zip(lines, values, strict=True)]
+    else:
+        notes = [note_part(*line) for line in lines]
+    evidence = {"assets": assets_value, "liabilities": liabilities,
+                "face": face, "notes": notes, "leases": leases,
                 "lease_notes": [note_part(*line) for line in LEASE_NOTES.get(key, ())]}
     if not face:
         evidence["balance_source"] = balance_source

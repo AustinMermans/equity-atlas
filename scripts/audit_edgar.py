@@ -514,6 +514,9 @@ for symbol in ("GE", "MUFG"):
 
 # Carrying amounts independently tied to the consolidated balance sheets and notes.
 DEBT_BALANCES = {
+    "BRK-B": ("USD", 129_081_000_000, None),
+    "HSBC": ("USD", 253_798_000_000, None),
+    "PLTR": ("USD", 0, None),
     "ARM": ("USD", 59_000_000, None),
     "CAT": ("USD", 43_330_000_000, None),
     "CME": ("USD", 3_422_300_000, None),
@@ -548,6 +551,9 @@ for symbol, (currency, debt, leases) in DEBT_BALANCES.items():
         checked += 1
 
 DEBT_COMPONENTS = {
+    "BRK-B": [45_763_000_000, 83_318_000_000],
+    "HSBC": [216_217_000_000, 37_581_000_000],
+    "PLTR": [0],
     "CAT": [5_514_000_000, 30_696_000_000, 7_120_000_000],
     "CME": [0, 3_422_300_000],
     "EQIX": [1_299_000_000, 16_910_000_000, 17_000_000, 686_000_000, 168_000_000, 2_187_000_000],
@@ -570,7 +576,7 @@ FUNDING_BALANCES = {
 }
 for symbol, (currency, values) in FUNDING_BALANCES.items():
     facts = rows[symbol]["statement"]["facts"]
-    if "debt_total" in facts:
+    if symbol not in DEBT_BALANCES and "debt_total" in facts:
         raise SystemExit(f"{symbol}: partial funding amounts were treated as total debt")
     for field, value in values.items():
         fact = facts[field]
