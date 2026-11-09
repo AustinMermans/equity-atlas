@@ -38,6 +38,11 @@ DIRECT = {
 
 # Report title, SEC rendered table, scale, and reviewed concept/label pairs.
 RENDERED = {
+    (353278, "0000353278-26-000012"): (
+        "Cash flow statement", "R5.htm", 1_000_000,
+        (("ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "Purchase of property, plant and equipment"),
+         ("ifrs-full:PurchaseOfIntangibleAssetsClassifiedAsInvestingActivities", "Purchase of intangible assets")),
+    ),
     (1577552, "0001193125-26-231755"): (
         "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000,
         (("baba:PaymentsToAcquireLandUseRightsPropertyAndEquipment", "Land use rights, property and equipment"),
