@@ -14,7 +14,7 @@ from .depreciation import (
     TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
     rule_key as depreciation_rule_key, separate_partial_da,
 )
-from .operating import enrich_operating, gap_reason, supported as operating_supported
+from .operating import enrich_operating, gap_reason, profile_for as operating_profile
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -117,6 +117,13 @@ def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, iss
     return {**results,"interim_routes":routes}
 
 
+def hold_unreconciled(statement, field):
+    facts=statement["facts"].copy()
+    if field in facts:
+        facts[field+"_unreconciled"]=facts.pop(field)
+    return {**statement,"facts":facts}
+
+
 def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, annual_only=False):
     choices=[]
     issues=[]
@@ -210,11 +217,15 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1]=enrich_capex(cache,obj,meta,cik,selected_filing,history[-1])
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual cash investment for {selected['end']}: {exc}")
-                if selected_filing and operating_supported(cik, selected_filing):
+                        history[-1]=hold_unreconciled(history[-1],"capex")
+                income_rule=operating_profile(cik,selected_filing) if selected_filing else None
+                if income_rule:
                     try:
                         history[-1]=enrich_operating(cache,cik,selected_filing,history[-1])
                     except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
                         issues.append(f"Annual income statement for {selected['end']}: {exc}")
+                        if income_rule.revised_sales:
+                            history[-1]=hold_unreconciled(history[-1],"sales")
                 if selected_filing and "ebit" not in history[-1]["facts"]:
                     reason=gap_reason(cik,selected_filing)
                     if reason:

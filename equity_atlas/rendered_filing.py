@@ -3,6 +3,7 @@
 from decimal import Decimal, InvalidOperation
 import json
 import math
+import re
 
 ENDPOINT = "https://canlicapital.com/mcp/canli"
 
@@ -41,6 +42,36 @@ def decode_response(raw, receipt, report, cik, period):
         raise ValueError("Rendered response does not match the exact SEC filing")
     sources = result["_meta"]["canlicapital.com/receipt"]["sources"]
     return data, {row["url"]: row["sha256_16"] for row in sources}
+
+
+def table_belongs_to_filing(table_url, report, pinned_filename=None):
+    path = report["path"] + "/"
+    if not isinstance(table_url, str) or not table_url.startswith(path):
+        return False
+    filename = table_url[len(path):]
+    return filename == pinned_filename if pinned_filename else bool(re.fullmatch(r"R[1-9]\d*\.htm", filename))
+
+
+def annual_table(cache, cik, report, statement, kind, title, pinned_filename=None, pinned_scale=None):
+    if (statement["filing"], statement["end"], statement["period_kind"]) != (
+            report["accession"], report["end"], "annual"):
+        raise ValueError("Rendered table does not match the selected annual statement")
+    request = request_bytes(f"{cik:010d}", "annual", report["accession"], kind)
+    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
+    data, checksums = decode_response(raw, receipt, report, cik, "annual")
+    table = data[kind]
+    sources = table["sources"]
+    url = sources[0] if len(sources) == 1 else None
+    digest = checksums.get(url, "")
+    scale = table["money_scale"]
+    year = "12 months to " + statement["end"]
+    if (" ".join(table["title"].casefold().split()) != " ".join(title.casefold().split()) or
+            not table_belongs_to_filing(url, report, pinned_filename) or
+            table["currency"] != statement["currency"] or table["columns"].count(year) != 1 or
+            scale not in {1, 1_000, 1_000_000, 1_000_000_000} or
+            (pinned_scale is not None and scale != pinned_scale) or not re.fullmatch(r"[0-9a-f]{16}", digest)):
+        raise ValueError(f"Unverified annual {kind.replace('_', ' ')} table")
+    return table, table["columns"].index(year), receipt, {"table_url": url, "table_sha256_16": digest}
 
 
 def amount(table, concept, column, label=None):

@@ -86,6 +86,9 @@ for symbol, key, amount in (("BP", "capex_reported_total", 14_533_000_000),
         raise SystemExit(f"{symbol} {key}: expected {amount}")
     checked += 1
 INCOME_STATEMENT = {
+    "CNQ": ("CAD", {"ebit": 8_606_000_000, "asset_transaction_gain": 5_069_000_000,
+                    "retirement_accretion": 380_000_000, "risk_management_net_gain": 18_000_000,
+                    "foreign_exchange_net_gain": 762_000_000}),
     "COP": ("USD", {"ebit": 10_938_000_000}),
     "CVX": ("USD", {"ebit": 16_674_000_000, "sales": 184_432_000_000, "sales_and_other_income": 189_031_000_000}),
     "ETN": ("USD", {"ebit": 5_209_000_000}),
@@ -109,7 +112,7 @@ for symbol, (currency, fields) in INCOME_STATEMENT.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-reviewed_gaps = {"ADP", "AEM", "BMY", "CNQ", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
+reviewed_gaps = {"ADP", "AEM", "BMY", "DE", "GE", "IBM", "JNJ", "MRK", "PFE"}
 for symbol in reviewed_gaps:
     period = rows[symbol]["statement"]
     if "ebit" in period["facts"] or not period.get("operating_profit_gap"):
@@ -128,9 +131,9 @@ DEPRECIATION = {
     "AVGO": ("USD", {"da": 8636, "amortization_with_rou": 8201}),
     "AZN": ("USD", {"da": 5490, "da_with_impairment": 5733, "asset_impairment": 243}),
     "BTI": ("GBP", {"da": 2245, "da_with_impairment": 2547, "asset_impairment": 302}),
-    "BUD": ("USD", {"da_with_impairment": 5652}),
+    "BUD": ("USD", {"da_with_impairment": 5652, "da": 5045}),
     "CRWD": ("USD", {"da": 281.451, "amortization_deferred_contract_costs": 449.413}),
-    "CSCO": ("USD", {"da_with_other": 2540, "da_tagged_component": 700}),
+    "CSCO": ("USD", {"da_with_other": 2540, "da_ppe": 700}),
     "CVNA": ("USD", {"da": 275}),
     "DHR": ("USD", {"da": 2447}),
     "GE": ("USD", {"da": 1220}),
@@ -153,7 +156,7 @@ DEPRECIATION = {
     "SAP": ("EUR", {"da": 1311}),
     "SHEL": ("USD", {"da": 25299}),
     "SNY": ("EUR", {"da_with_impairment": 5678}),
-    "SO": ("USD", {"da_with_accretion": 6030}),
+    "SO": ("USD", {"da_with_accretion": 6030, "da_excluding_nuclear_fuel": 5501}),
     "SPOT": ("EUR", {"da": 102}),
     "TMO": ("USD", {"da": 2780}),
     "TSLA": ("USD", {"da_with_impairment": 6148}),
@@ -172,7 +175,7 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("BUD", "CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
+for symbol in ("CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")

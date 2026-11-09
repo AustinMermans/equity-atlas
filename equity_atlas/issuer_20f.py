@@ -1,7 +1,9 @@
 """Extract reviewed consolidated tables from public copies of filed 20-Fs."""
 from datetime import date, timedelta
+from html.parser import HTMLParser
 import re
 import subprocess
+from urllib.parse import urlsplit
 
 from .facts import EPS_FIELDS, STOCK
 
@@ -51,6 +53,39 @@ def column(table, label, count, occurrence=None, column_index=0):
     if value in {"−", "–", "—", "-"}:
         return 0
     return float(value.replace("(", "-").replace(")", ""))
+
+
+def linked_report(raw, label, host):
+    """Find an issuer-published document link by its visible label."""
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.active = None
+            self.text = []
+            self.matches = set()
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "a":
+                self.active = dict(attrs).get("href")
+                self.text = []
+
+        def handle_data(self, data):
+            if self.active:
+                self.text.append(data)
+
+        def handle_endtag(self, tag):
+            if tag == "a" and self.active:
+                if " ".join("".join(self.text).split()) == label:
+                    url = urlsplit(self.active)
+                    if url.scheme == "https" and url.netloc == host:
+                        self.matches.add(self.active)
+                self.active = None
+
+    links = Links()
+    links.feed(raw.decode("utf-8"))
+    if len(links.matches) != 1:
+        raise ValueError("Missing unique issuer report download link")
+    return links.matches.pop()
 
 
 def pdf_pages(blob):

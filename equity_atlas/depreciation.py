@@ -3,12 +3,13 @@
 import re
 
 from .capex import PDFS
-from .facts import exact_sec_amount
+from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
-from .issuer_20f import column, pdf_pages
-from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes, scaled
+from .issuer_20f import column, linked_report, pdf_pages
+from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belongs_to_filing
 
 TAG = "derived:FiledDepreciationAndAmortization"
+BUD = (1668717, "0001193125-26-088105")
 AIRBNB = (1559720, "0001559720-26-000004")
 NOVARTIS = (1114448, "0001114448-26-000004")
 VALERO = (1035002, "0001628280-26-011499")
@@ -94,7 +95,7 @@ CASH_TABLES = {
             ),
         },
     ),
-    (1668717, "0001193125-26-088105"): (  # BUD
+    BUD: (
         'Consolidated Statement of Cash Flows', "R6.htm", 1_000_000, {
             "da_with_impairment": (
                 ('ifrs-full:AdjustmentsForDepreciationAndAmortisationExpense', 'Depreciation, amortization and impairment'),
@@ -378,12 +379,17 @@ CHECKS = {
     (863064, "0001628280-26-009531"): ("da_reported_total", "-da"),
     VALERO: ("da", "-da_general_and_administrative", "-da_cost_of_sales"),
 }
+BUD_PDF_LINES = (
+    ("disclosed:OwnedPropertyDepreciation", "Note 13 · Depreciation of owned property, plant and equipment"),
+    ("disclosed:IntangibleAssetAmortization", "Note 15 · Amortization of intangible assets"),
+)
 PDF_FIELDS = {
+    BUD: {"da": BUD_PDF_LINES + (ROU,)},
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
 GAPS = {
-    CISCO: "The cash-flow adjustment includes other items. The existing tagged amount covers only a portion of consolidated depreciation and amortization.",
-    (1668717, "0001193125-26-088105"): "The cash-flow adjustment includes impairment. Separate it using the operating expense disclosures.",
+    CISCO: "The cash-flow adjustment includes other items. The property and equipment note covers only those assets. Purchased intangible amortization has a separate disclosure scope.",
+    BUD: "The cash-flow adjustment includes impairment. The pure depreciation and amortization amounts require the audited asset notes.",
     (1652044, "0001652044-26-000018"): "The cash-flow statement separately reports property and equipment depreciation. A consolidated intangible-amortization amount needs its own source.",
     (1121404, "0001628280-26-008403"): "The cash-flow adjustment includes impairment across several asset classes. Separate the continuing operations depreciation and amortization from those charges.",
     (92122, "0000092122-26-000006"): "The cash-flow adjustment uses a broader concept than the income-statement expense. Reconcile accretion and the nuclear fuel treatment before using the total.",
@@ -397,23 +403,15 @@ PARTIAL_DA = {
     VALERO: ("us-gaap:DepreciationAndAmortization", "da_general_and_administrative", "General and administrative depreciation and amortization"),
     MCDONALDS: ("us-gaap:DepreciationDepletionAndAmortization", "da_general_and_administrative", "Selling, general and administrative depreciation and amortization"),
     MCKESSON: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe_and_finance_lease", "Depreciation of PP&E and amortization of finance lease right-of-use assets"),
-    CISCO: ("us-gaap:DepreciationDepletionAndAmortization", "da_tagged_component", "Tagged D&A with partial scope"),
+    CISCO: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe",
+            "Property and equipment depreciation and amortization"),
 }
 PINNED = CASH_TABLES.keys() | NOTES.keys() | PDF_FIELDS.keys() | GAPS.keys()
-RECURRING = {
-    cik: (cik, accession) for cik, accession in sorted(
-        PINNED - {AIRBNB, NOVARTIS}, key=lambda item: (item[0], item[1].split("-")[1:]),
-    )
-}
+RECURRING = recurring_annual_rules(PINNED - {AIRBNB, NOVARTIS})
 
 
 def rule_key(cik, report):
-    key = cik, report["accession"]
-    if key in PINNED:
-        return key
-    if report["form"] in {"10-K", "20-F", "40-F"}:
-        return RECURRING.get(cik, key)
-    return key
+    return annual_rule_key(cik, report, PINNED, RECURRING)
 
 
 def table_fields(key):
@@ -441,34 +439,13 @@ def separate_partial_da(statement, key):
     return {**statement, "facts": facts}
 
 
-def table_belongs_to_filing(table_url, report, pinned_filename=None):
-    path = report["path"] + "/"
-    if not isinstance(table_url, str) or not table_url.startswith(path):
-        return False
-    filename = table_url[len(path):]
-    return filename == pinned_filename if pinned_filename else bool(re.fullmatch(r"R[1-9]\d*\.htm", filename))
-
-
 def cash_components(cache, obj, cik, report, statement, component):
     key = rule_key(cik, report)
     title, filename, reviewed_scale, fields = CASH_TABLES[key]
     pinned = key == (cik, report["accession"])
-    request = request_bytes(f"{cik:010d}", "annual", report["accession"], "cash_flow")
-    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
-    data, checksums = decode_response(raw, receipt, report, cik, "annual")
-    table = data["cash_flow"]
-    sources = table["sources"]
-    table_url = sources[0] if len(sources) == 1 else None
+    table, index, receipt, evidence = annual_table(cache, cik, report, statement, "cash_flow", title,
+                                                    filename if pinned else None, reviewed_scale if pinned else None)
     scale = table["money_scale"]
-    digest = checksums.get(table_url, "")
-    year = "12 months to " + statement["end"]
-    if (" ".join(table["title"].casefold().split()) != " ".join(title.casefold().split()) or
-            not table_belongs_to_filing(table_url, report, filename if pinned else None) or
-            table["currency"] != statement["currency"] or
-            scale not in {1, 1_000, 1_000_000, 1_000_000_000} or (pinned and scale != reviewed_scale) or
-            table["columns"].count(year) != 1 or not re.fullmatch(r"[0-9a-f]{16}", digest)):
-        raise ValueError("Unverified annual depreciation cash-flow table")
-    index = table["columns"].index(year)
     cfo = statement["facts"]["cfo"]
     # SEC renders dimensional subtables after the consolidated face statement.
     rows = table["rows"]
@@ -483,7 +460,7 @@ def cash_components(cache, obj, cik, report, statement, component):
         direct = exact_sec_amount(obj, statement, report, tag)
         if direct is not None and direct != value:
             raise ValueError(f"Cash-flow line disagrees with SEC Company Facts for {label}")
-        return component(tag, label, value, receipt, table_url=table_url, table_sha256_16=digest)
+        return component(tag, label, value, receipt, **evidence)
 
     return {field: [get_part(*line) for line in lines] for field, lines in fields.items()}
 
@@ -500,6 +477,49 @@ def airbnb_amount(cache, statement):
         if scaled(column(page, label, 2, column_index=1), 1_000_000) != statement["facts"][field]["value"]:
             raise ValueError("Airbnb reconciliation does not match the selected filing")
     return scaled(column(page, "Depreciation and amortization", 2, column_index=1), 1_000_000), receipt
+
+
+def bud_report_url(report):
+    year = report["end"][:4]
+    return f"https://www.ab-inbev.com/news-media/news-stories/ab-in-bev-{year}-annual-report"
+
+
+def bud_amounts(cache, obj, report, statement):
+    year = report["end"][:4]
+    if statement["currency"] != "USD" or report["form"] != "20-F" or report["end"] != f"{year}-12-31":
+        raise ValueError("Unexpected AB InBev reporting period or currency")
+    source = bud_report_url(report)
+    page, _ = cache.get(source, 8760)
+    href = linked_report(page, f"Click here to view and download the {year} Annual Report (English)", "cdn.builder.io")
+    raw, receipt = cache.get(href, 8760)
+    pages = pdf_pages(raw)
+
+    def read(heading, anchor, label, count, index, occurrence=None, dated_header=False):
+        matches = [p for p in pages if heading in p and anchor in p and year in p and "Million US dollar" in p]
+        if len(matches) != 1:
+            raise ValueError(f"Missing unique AB InBev annual table for {heading}")
+        table = matches[0]
+        if dated_header:
+            start = table.index(heading)
+            current = table.find(f"31 December {year}", start)
+            previous = table.find(f"31 December {int(year)-1}", start)
+            if not 0 <= current < previous:
+                raise ValueError("Unexpected order of years in AB InBev asset notes")
+        table = re.sub(r"(?<=\d) (?=\d{3}(?:[)\s]|$))", "", table)
+        return scaled(column(table, label, count, occurrence=occurrence, column_index=index), 1_000_000)
+
+    cfo = read("Consolidated statement of cash flows", "Depreciation, amortization and impairment",
+               "Cash flow from/(used in) operating activities", 2, 0)
+    if cfo != statement["facts"]["cfo"]["value"]:
+        raise ValueError("AB InBev annual report does not match the filed consolidated cash flow")
+    depreciation = -read("13. Property, plant and equipment", "Depreciation and impairment losses",
+                         "Depreciation", 5, 3, dated_header=True)
+    amortization = -read("15. Intangible assets", "Amortization and impairment losses", "Amortization", 6, 4, dated_header=True)
+    leases = exact_sec_amount(obj, statement, report, ROU[0])
+    if leases != -read("Property, plant and equipment leased by the company", "Net carrying amount at 31 December",
+                        "Depreciation for the year ended 31 December", 3, 2, occurrence=0, dated_header=True):
+        raise ValueError("AB InBev lease depreciation does not match the filed note")
+    return (depreciation, amortization), leases, {**receipt, "url": source}
 
 
 def novartis_amount(cache, obj, report, statement):
@@ -554,6 +574,12 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
         tag, label = PDF_FIELDS[key]["da"][0]
         parts["da"] = [component(tag, label, value, receipt)]
 
+    if key == BUD:
+        values, leases, receipt = bud_amounts(cache, obj, report, statement)
+        parts["da"] = [component(tag, label, value, receipt)
+                       for (tag, label), value in zip(BUD_PDF_LINES, values, strict=True)]
+        parts["da"].append(component(*ROU, leases, meta))
+
     facts = separate_partial_da(statement, key)["facts"].copy()
     if cik in {40545, 104169, VALERO[0]} and "da_with_accretion" in facts:
         old = facts["da_with_accretion"]
@@ -579,6 +605,8 @@ def reconciles(key, facts):
         return False
     if sum((-1 if field.startswith("-") else 1) * facts[field.removeprefix("-")]["value"] for field in check):
         return False
+    if key == BUD:
+        return 0 < facts["da"]["value"] <= facts["da_with_impairment"]["value"]
     if key == (1730168, "0001730168-25-000121"):
         return facts["da"]["components"][1]["value"] <= facts["amortization_with_rou"]["value"]
     return True
@@ -592,6 +620,8 @@ def valid_component(cik, report, field, part):
         filename = CASH_TABLES[key][1] if key == (cik, report["accession"]) else None
         return (source == ENDPOINT and table_belongs_to_filing(part.get("table_url"), report, filename) and
                 bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
+    if key == BUD and tag in {tag for tag, _ in BUD_PDF_LINES}:
+        return source == bud_report_url(report)
     if tag == "disclosed:DepreciationAndAmortization" and key == AIRBNB:
         return source == PDFS[key][0]
     if tag == "disclosed:ContinuingIntangibleAmortization" and key == NOVARTIS:

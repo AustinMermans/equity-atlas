@@ -6,14 +6,16 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from equity_atlas.capex import enrich_capex, valid_capex_components
 from equity_atlas.catalog import cik_on
 from equity_atlas.depreciation import enrich_depreciation
 from equity_atlas.fetch import Cache
 from equity_atlas.rendered_filing import ENDPOINT
+from equity_atlas.operating import enrich_operating
 from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
 from equity_atlas.facts import balance_check, from_sec, precise_duplicates
 from equity_atlas.inline import periods_from_inline
-from equity_atlas.issuer_20f import column, statement_page
+from equity_atlas.issuer_20f import column, linked_report, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
 from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount
 
@@ -54,6 +56,62 @@ class EdgarTests(unittest.TestCase):
         table["sources"] = [path + "/../R29.htm"]
         with self.assertRaisesRegex(ValueError, "Unverified"):
             extract()
+
+    def test_cash_investment_rule_reuses_the_current_filing_and_requires_every_line(self):
+        cik = 8670
+        accession = "0000008670-27-000031"
+        report = {"accession": accession, "end": "2027-06-30", "filed": "2027-08-05", "form": "10-K",
+                  "url": "https://www.sec.gov/Archives/edgar/data/8670/000000867027000031/adp.htm"}
+        record = {"accn": accession, "start": "2026-07-01", "end": report["end"],
+                  "filed": report["filed"], "form": report["form"]}
+        statement = {"filing": accession, "start": record["start"], "end": report["end"],
+                     "period_kind": "annual", "currency": "USD", "facts": {"capex": {"value": 190}}}
+        obj = {"facts": {"us-gaap": {
+            "PaymentsToAcquireOtherPropertyPlantAndEquipment": {"units": {"USD": [{**record, "val": 190}]}},
+            "PaymentsToAcquireIntangibleAssets": {"units": {"USD": [{**record, "val": 410}]}},
+        }}}
+        meta = {"url": "https://data.sec.gov/api/xbrl/companyfacts/CIK0000008670.json", "sha256": "a" * 64}
+        fact = enrich_capex(None, obj, meta, cik, report, statement)["facts"]["capex"]
+        self.assertEqual(fact["value"], 600)
+        self.assertTrue(valid_capex_components(fact["components"], cik, report, "capex"))
+        self.assertFalse(valid_capex_components(fact["components"][:1], cik, report, "capex"))
+
+    def test_income_rule_rechecks_the_concept_when_the_filing_rolls_forward(self):
+        cik = 92122
+        accession = "0000092122-27-000009"
+        path = "https://www.sec.gov/Archives/edgar/data/92122/000009212227000009"
+        report = {"accession": accession, "path": path, "url": path + "/so.htm",
+                  "end": "2026-12-31", "filed": "2027-02-16", "form": "10-K"}
+        table_url = path + "/R29.htm"
+        statement = {"filing": accession, "end": report["end"], "start": "2026-01-01", "period_kind": "annual",
+                     "currency": "USD", "facts": {"sales": {"value": 120_000_000}, "ebit": {"value": 30_000_000}}}
+        table = {"title": "Consolidated Statements of Income - Southern", "sources": [table_url], "money_scale": 1_000_000,
+                 "currency": "USD", "columns": ["line", "concept", "12 months to " + report["end"]],
+                 "rows": [["Total operating revenues", "us-gaap:Revenues", 120],
+                          ["Depreciation and amortization", "so:DepreciationAndAmortizationExcludingNuclearFuel", 10],
+                          ["Total operating expenses", "us-gaap:CostsAndExpenses", 90],
+                          ["Operating Income", "us-gaap:OperatingIncomeLoss", 30]]}
+        result = {"structuredContent": {"company": {"cik": cik}, "period": "annual",
+                  "filings": {"rows": [[accession, report["form"], report["filed"], report["end"], path + "/index.htm"]]},
+                  "income": table}, "_meta": {"canlicapital.com/receipt": {"sources": [
+                      {"url": table_url, "sha256_16": "a" * 16}]}}}
+        class StubCache:
+            def get(self, url, ttl, *, post_json):
+                return json.dumps({"result": result}).encode(), {"url": url, "sha256": "b" * 64}
+        fact = enrich_operating(StubCache(), cik, report, statement)["facts"]["da_excluding_nuclear_fuel"]
+        self.assertEqual((fact["value"], fact["table_url"]), (10_000_000, table_url))
+        table["rows"][1][1] = "us-gaap:DepreciationAndAmortization"
+        with self.assertRaisesRegex(ValueError, "concept changed"):
+            enrich_operating(StubCache(), cik, report, statement)
+
+    def test_issuer_report_discovery_requires_the_label_and_download_host(self):
+        page = b"""<a href="https://other.example/2025.pdf">2025 Report (English)</a>
+        <a href="https://reports.example/2024.pdf">2024 Report (English)</a>
+        <a href="https://reports.example/2025.pdf">2025 <strong>Report</strong> (English)</a>"""
+        self.assertEqual(linked_report(page, "2025 Report (English)", "reports.example"),
+                         "https://reports.example/2025.pdf")
+        with self.assertRaisesRegex(ValueError, "Missing unique"):
+            linked_report(page, "2025 Report (English)", "unknown.example")
 
     def test_filing_cache_does_not_store_invalid_responses(self):
         with TemporaryDirectory() as directory:

@@ -2,10 +2,10 @@
 
 import re
 
-from .facts import exact_sec_amount
+from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, pdf_pages
-from .rendered_filing import ENDPOINT, amount, decode_response, request_bytes, scaled
+from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belongs_to_filing
 
 PPE_OTHER = "us-gaap:PaymentsToAcquireOtherPropertyPlantAndEquipment"
 PPE = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
@@ -15,7 +15,7 @@ TURNAROUND = "us-gaap:PaymentsForCapitalImprovements"
 CAPEX_TAG = "derived:CashCapitalInvestment"
 
 # These are face cash-flow amounts unless a filing exposes its separate PP&E
-# outflow in the FCF reconciliation. Bind every scope decision to its accession.
+# outflow in the FCF reconciliation. Reviewed rules revalidate the current filing.
 DIRECT = {
     (937966, "0001628280-26-011378"): (
         (PPE, "Purchase of property, plant and equipment"), (INTANGIBLES, "Purchase of intangible assets"),
@@ -107,9 +107,16 @@ VALERO_MEMBERS = (
 )
 
 
+PINNED = DIRECT.keys() | RENDERED.keys() | PDFS.keys()
+RECURRING = recurring_annual_rules(PINNED - PDFS.keys())
+
+
+def rule_key(cik, report):
+    return annual_rule_key(cik, report, PINNED, RECURRING)
+
+
 def supported(cik, report):
-    key = cik, report["accession"]
-    return key in DIRECT or key in RENDERED or key in PDFS
+    return rule_key(cik, report) in PINNED
 
 
 def section(table, label):
@@ -125,18 +132,10 @@ def section(table, label):
 def rendered_components(cache, obj, key, statement, report, component):
     title, filename, scale, concepts = RENDERED[key]
     cik = key[0]
-    request = request_bytes(f"{cik:010d}", "annual", report["accession"], "cash_flow")
-    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
-    data, checksums = decode_response(raw, receipt, report, cik, "annual")
-    table = data["cash_flow"]
-    url = report["path"] + "/" + filename
-    digest = checksums.get(url, "")
-    period = "12 months to " + statement["end"]
-    if (table["title"] != title or table["sources"] != [url] or table["currency"] != statement["currency"] or
-            table["money_scale"] != scale or table["columns"].count(period) != 1 or
-            not re.fullmatch(r"[0-9a-f]{16}", digest)):
-        raise ValueError("Unverified annual cash-flow table or reporting currency")
-    index = table["columns"].index(period)
+    pinned = key == (cik, report["accession"])
+    table, index, receipt, evidence = annual_table(cache, cik, report, statement, "cash_flow", title,
+                                                    filename if pinned else None, scale if pinned else None)
+    scale = table["money_scale"]
     if cik == 753308:
         _, consolidated = section(table, "FPL")
     elif cik == 1035002:
@@ -153,7 +152,7 @@ def rendered_components(cache, obj, key, statement, report, component):
         direct = exact_sec_amount(obj, statement, report, tag) if not scope else None
         if direct is not None and abs(direct) != value:
             raise ValueError(f"Cash-flow table and SEC Company Facts disagree for {label}")
-        return component(tag, value, title + " · " + scope + label, receipt, table_url=url, table_sha256_16=digest)
+        return component(tag, value, title + " · " + scope + label, receipt, **evidence)
 
     parts = [extract(consolidated, tag, label) for tag, label in concepts]
     if cik == 1035002:
@@ -201,7 +200,7 @@ def pdf_component(cache, key, statement, component):
 
 
 def enrich_capex(cache, obj, meta, cik, report, statement):
-    key = cik, report["accession"]
+    key = rule_key(cik, report)
     if (not supported(cik, report) or statement["period_kind"] != "annual" or
             (statement["filing"], statement["end"]) != (report["accession"], report["end"])):
         raise ValueError("Cash investment profile must match the selected annual statement")
@@ -239,20 +238,32 @@ def enrich_capex(cache, obj, meta, cik, report, statement):
     return {**statement, "facts": facts}
 
 
-def valid_capex_source(fact, cik, report):
-    key = cik, report["accession"]
-    source = fact["source"]
-    if source == SEC.format(cik):
-        return fact["tag"] in {tag for tag, _ in DIRECT.get(key, ())}
-    if key in PDFS and source == PDFS[key][0]:
-        return fact["tag"] == "disclosed:CashPurchasesOfPropertyAndEquipment"
-    if key in RENDERED and source == ENDPOINT:
-        _, filename, _, lines = RENDERED[key]
-        tags = {tag for tag, _ in lines}
-        if cik == 1035002:
-            tags.update({PPE, TURNAROUND})
-        if cik in REPORTED_TOTALS:
-            tags.add(REPORTED_TOTALS[cik][0])
-        return (fact["tag"] in tags and fact.get("table_url") == report["path"] + "/" + filename and
-                bool(re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", ""))))
-    return False
+def valid_capex_components(parts, cik, report, field):
+    key = rule_key(cik, report)
+    expected = []
+    pinned_filename = None
+    if field == "capex" and key in PDFS:
+        source, footer, _, _, _, label, _, _ = PDFS[key]
+        expected.append((source, "disclosed:CashPurchasesOfPropertyAndEquipment",
+                         f"p. {footer} · FCF reconciliation · {label}"))
+    if key in RENDERED:
+        title, filename, _, lines = RENDERED[key]
+        pinned_filename = filename if key == (cik, report["accession"]) else None
+        if field == "capex":
+            expected.extend((ENDPOINT, tag, f"{title} · {label}") for tag, label in lines)
+            if cik == 1035002:
+                expected.extend((ENDPOINT, tag, f"{title} · {member} · {label}")
+                                for member, lines in VALERO_MEMBERS for tag, label in lines)
+        elif field == "capex_reported_total" and cik in REPORTED_TOTALS:
+            tag, label = REPORTED_TOTALS[cik]
+            expected.append((ENDPOINT, tag, f"{title} · {label}"))
+    if field == "capex":
+        expected.extend((SEC.format(cik), tag, f"Consolidated cash flow · {label}")
+                        for tag, label in DIRECT.get(key, ()))
+    return bool(expected) and len(parts) == len(expected) and all(
+        (part["source"], part["tag"], part["locator"]) == (source, tag, label) and
+        (source != ENDPOINT or (
+            table_belongs_to_filing(part.get("table_url"), report, pinned_filename) and
+            bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", "")))
+        )) for part, (source, tag, label) in zip(parts, expected)
+    )

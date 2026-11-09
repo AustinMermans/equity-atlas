@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from equity_atlas.capex import CAPEX_TAG, REPORTED_TOTALS, supported as capex_supported, valid_capex_source
+from equity_atlas.capex import CAPEX_TAG, PINNED as CAPEX_PINNED, valid_capex_components
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
@@ -20,8 +20,8 @@ from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.sec_workbook import DA_COMPONENTS, DA_TAG as WORKBOOK_DA_TAG, PROFILES, ROUTE as WORKBOOK_ROUTE, SOURCE as WORKBOOK_SOURCE, workbook_url
 from equity_atlas.rendered_10q import ROUTE as RENDERED_ROUTE, TABLES, rendered_10q_url, table_url
-from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason
-from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT
+from equity_atlas.operating import OPERATING_TAG, SALES_BASIS, PROFILES as INCOME_PROFILES, gap_reason, profile_for as income_profile_for
+from equity_atlas.rendered_filing import ENDPOINT as RENDERED_ENDPOINT, table_belongs_to_filing
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_DAILY_QUOTES, TWSE_ISSUERS
 
 snap=json.loads(Path(sys.argv[1]).read_text())
@@ -64,9 +64,11 @@ def annual_cik(row, report):
     return cik
 
 
-def verify_income_fact(period, report, profile, key, fact):
+def verify_income_fact(period, report, cik, profile, key, fact):
     parts = fact.get("components", [])
     terms = profile.fields[key]
+    tags = dict(profile.line_tags)
+    filename = profile.table if (cik, report["accession"]) in INCOME_PROFILES else None
     return (
         period["period_kind"] == "annual" and
         period["filing"] == report["accession"] == fact["accession"] and
@@ -74,12 +76,13 @@ def verify_income_fact(period, report, profile, key, fact):
         fact["filed"] == report["filed"] and fact["form"] == report["form"] and
         fact["start"] == period["start"] and fact["unit"] == period["currency"] and
         fact["source"] == RENDERED_ENDPOINT and
-        fact.get("table_url") == report["path"] + "/" + profile.table and
+        table_belongs_to_filing(fact.get("table_url"), report, filename) and
         re.fullmatch(r"[0-9a-f]{64}", fact["sha256"]) and
         re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", "")) and
         bool(fact.get("locator")) and len(parts) == len(terms) and
         all(part["sign"] == (-1 if term.startswith("-") else 1) and
             part["line"] == term.removeprefix("-") and bool(part["tag"]) and
+            part["tag"] == tags.get(part["line"], part["tag"]) and
             math.isfinite(part["value"]) for part, term in zip(parts, terms)) and
         fact["value"] == sum(part["sign"] * part["value"] for part in parts) and
         fact["tag"] == (OPERATING_TAG if key == "ebit" else parts[0]["tag"])
@@ -152,7 +155,7 @@ def verify_period(period, row):
         raise SystemExit("Missing SEC workbook provenance")
     annual_report = period.get("report") if period is row["statement"] else None
     selected_cik = annual_cik(row, annual_report) if annual_report else None
-    income_profile = INCOME_PROFILES.get((selected_cik, annual_report["accession"])) if annual_report else None
+    income_profile = income_profile_for(selected_cik, annual_report) if annual_report else None
     for key, fact in period["facts"].items():
         source=fact["source"]
         url=fact["url"]
@@ -188,28 +191,25 @@ def verify_period(period, row):
                             fact["unit"] == period["currency"] and fact["start"] is None and
                             bool(fact.get("locator")) and len(fact["sha256"]) == 64)
         if fact["tag"] == CAPEX_TAG or key == "capex_reported_total":
-            report = period.get("report")
-            cik = int(row["id"].removeprefix("sec:"))
+            report = annual_report
             components = fact.get("components", []) if key == "capex" else [fact]
             official = bool(
-                report and period is row["statement"] and capex_supported(cik, report) and
-                key in {"capex", "capex_reported_total"} and components and
-                (key != "capex_reported_total" or (cik in REPORTED_TOTALS and fact["tag"] == REPORTED_TOTALS[cik][0])) and
+                report and period["period_kind"] == "annual" and
+                valid_capex_components(components, selected_cik, report, key) and
                 period["filing"] == report["accession"] and period["end"] == report["end"] and
                 fact["value"] == sum(p["value"] for p in components) and
-                len(components) == len({(p["tag"], p["locator"]) for p in components}) and
                 fact["source"] == components[0]["source"] and fact["sha256"] == components[0]["sha256"] and
                 all(p["url"] == report["url"] and p["accession"] == report["accession"] and
                     p["filed"] == report["filed"] and p["form"] == report["form"] and
                     p["start"] == period["start"] and p["unit"] == period["currency"] and
                     math.isfinite(p["value"]) and p["value"] >= 0 and bool(p.get("locator")) and
-                    re.fullmatch(r"[0-9a-f]{64}", p["sha256"]) and valid_capex_source(p, cik, report)
+                    re.fullmatch(r"[0-9a-f]{64}", p["sha256"])
                     for p in components) and
                 all(fact[k] == components[0][k] for k in ("url", "accession", "filed", "form", "start", "unit"))
             )
         if fact["tag"] == OPERATING_TAG or (income_profile and key in income_profile.fields and source == RENDERED_ENDPOINT):
             official = bool(income_profile and key in income_profile.fields and
-                            verify_income_fact(period, annual_report, income_profile, key, fact))
+                            verify_income_fact(period, annual_report, selected_cik, income_profile, key, fact))
         if fact["tag"] == DEPRECIATION_TAG:
             official = bool(annual_report and verify_depreciation_fact(period, annual_report, selected_cik, key, fact))
         if fact["tag"] == WORKBOOK_DA_TAG:
@@ -246,18 +246,20 @@ for row in rows:
         if "annual_cash_investment_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
-            if report and capex_supported(int(row["id"].removeprefix("sec:")), report):
-                if period["facts"].get("capex", {}).get("tag") != CAPEX_TAG:
-                    raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
-                capex_profiles += 1
+            cik = annual_cik(row, report) if report else None
+            profiled = period["facts"].get("capex", {}).get("tag") == CAPEX_TAG
+            if report and (cik, report["accession"]) in CAPEX_PINNED and not profiled:
+                raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
+            capex_profiles += profiled
         if "annual_income_profiled" in snap["stats"] and row["id"].startswith("sec:"):
             period = row["statement"]
             report = period.get("report")
             cik = annual_cik(row, report) if report else None
-            profile = INCOME_PROFILES.get((cik, report["accession"])) if report else None
-            if profile:
-                expected_basis = SALES_BASIS if profile.revised_sales else None
-                if (not period.get("income_profiled") or period.get("sales_basis") != expected_basis or
+            profile = income_profile_for(cik, report) if report else None
+            pinned = bool(report and (cik, report["accession"]) in INCOME_PROFILES)
+            if pinned or period.get("income_profiled"):
+                expected_basis = SALES_BASIS if profile and profile.revised_sales else None
+                if (not profile or not period.get("income_profiled") or period.get("sales_basis") != expected_basis or
                         any(period["facts"].get(key, {}).get("source") != RENDERED_ENDPOINT
                             for key in profile.fields)):
                     raise SystemExit(f"Refusing to lose reconciled income statement fields for {row['symbol']}")

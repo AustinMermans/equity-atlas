@@ -340,6 +340,18 @@ def from_esef(entries, asof, lei):
                     })
     return _assemble(groups)
 
+def recurring_annual_rules(keys):
+    """Prefer the most recently reviewed filing rule for each registrant."""
+    return {key[0]: key for key in sorted(keys, key=lambda item: (item[0], item[1].split("-")[1:]))}
+
+
+def annual_rule_key(cik, report, pinned, recurring):
+    key = cik, report["accession"]
+    if key in pinned or report["form"] not in {"10-K", "20-F", "40-F"}:
+        return key
+    return recurring.get(cik, key)
+
+
 def exact_sec_amount(obj, statement, report, tag):
     """Read one consolidated fact for the exact annual accession and period."""
     taxonomy, name = tag.split(":", 1)

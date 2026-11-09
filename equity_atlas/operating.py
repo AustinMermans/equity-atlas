@@ -1,9 +1,9 @@
 """Reconcile operating profit and revenue to exact annual filing lines."""
 
-import re
 from dataclasses import dataclass
 
-from .rendered_filing import ENDPOINT, decode_response, request_bytes, scaled
+from .facts import annual_rule_key, recurring_annual_rules
+from .rendered_filing import ENDPOINT, annual_table, scaled
 
 OPERATING_TAG = "derived:FiledOperatingProfit"
 SALES_BASIS = "operating_sales"
@@ -18,8 +18,17 @@ class Profile:
     checks: tuple = ()
     tolerance: int = 0
     revised_sales: bool = False
+    line_tags: tuple = ()
 
 
+CNQ_ACCRETION = "Asset retirement obligation accretion"
+CNQ_RISK = "Risk management (gain) loss"
+CNQ_FX = "Foreign exchange (gain) loss"
+CNQ_TRANSACTIONS = "Gain on acquisitions, disposition, and remeasurement"
+CNQ_OPERATING = (
+    "Revenue", "-Production", "-Blending and feedstock", "-Transportation",
+    "-Depletion, depreciation and amortization", "-Administration", "-Share-based compensation",
+)
 COP_REVENUE = "Sales and other operating revenues"
 COP_OPERATING = (
     COP_REVENUE, "-Total costs and expenses", "Interest and debt expense",
@@ -66,6 +75,25 @@ XOM_OPERATING = (
 # All checks are zero-sum on the filed presentation signs. Excluded lines
 # reconcile operating profit to pretax income, or net income where necessary.
 PROFILES = {
+    (1017413, "0001017413-26-000018"): Profile(
+        "Consolidated Statements of Earnings", "R4.htm", 1_000_000,
+        {"sales": "Revenue", "pretax": "Earnings before taxes"},
+        {"ebit": CNQ_OPERATING, "asset_transaction_gain": (CNQ_TRANSACTIONS,),
+         "retirement_accretion": (CNQ_ACCRETION,), "risk_management_net_gain": ("-" + CNQ_RISK,),
+         "foreign_exchange_net_gain": ("-" + CNQ_FX,)},
+        (
+            ("Product sales", "Less: royalties", "-Revenue"),
+            CNQ_OPERATING + ("-" + CNQ_ACCRETION, "-Interest and other financing expense", "-" + CNQ_RISK,
+                             "-" + CNQ_FX, CNQ_TRANSACTIONS, "Gain from investment", "-Earnings before taxes"),
+        ),
+    ),
+    (92122, "0000092122-26-000006"): Profile(
+        "Consolidated Statements of Income - Southern", "R3.htm", 1,
+        {"sales": "Total operating revenues", "ebit": "Operating Income"},
+        {"da_excluding_nuclear_fuel": ("Depreciation and amortization",)},
+        (("Total operating revenues", "-Total operating expenses", "-Operating Income"),),
+        line_tags=(("Depreciation and amortization", "so:DepreciationAndAmortizationExcludingNuclearFuel"),),
+    ),
     (1163165, "0001163165-26-000009"): Profile(
         "Consolidated Income Statement", "R3.htm", 1,
         {"sales": COP_REVENUE, "pretax": "Income (loss) before income taxes"},
@@ -181,7 +209,6 @@ REVIEWED_GAPS = {
     (8670, "0000008670-26-000030"): "Operating and corporate financing need to be separated. ADP earns interest on client funds and includes related borrowing expense in its adjusted measure.",
     (2809, "0001104659-26-032153"): "The income statement groups mining costs with derivatives, currency effects and other expenses. Their operating scope needs a note-level reconciliation.",
     (14272, "0000014272-26-000004"): "The other-income and expense line includes financing, litigation and other items. It needs a note-level reconciliation.",
-    (1017413, "0001017413-26-000018"): "The income statement groups commodity risk management, financing and gains on asset transactions with operating costs. The operating share needs a note-level reconciliation.",
     (315189, "0001104659-25-122321"): "Deere reports segment operating profit and consolidates a captive finance business. The equipment and finance scopes need separate reconciliations.",
     (40545, "0000040545-26-000008"): "GE reports adjusted aerospace operating profit and consolidates insurance results. Aerospace and insurance need separate reconciliations.",
     (51143, "0000051143-26-000010"): "IBM consolidates its financing segment and publishes a non-GAAP operating measure. Consolidated operating and financing items need separate reconciliations.",
@@ -195,27 +222,23 @@ def gap_reason(cik, report):
     return REVIEWED_GAPS.get((cik, report["accession"]))
 
 
+RECURRING = recurring_annual_rules(PROFILES)
+
+
+def profile_for(cik, report):
+    return PROFILES.get(annual_rule_key(cik, report, PROFILES, RECURRING))
+
+
 def supported(cik, report):
-    return (cik, report["accession"]) in PROFILES
+    return profile_for(cik, report) is not None
 
 
 def enrich_operating(cache, cik, report, statement):
-    profile = PROFILES[cik, report["accession"]]
-    if ((statement["filing"], statement["end"], statement["period_kind"]) !=
-            (report["accession"], report["end"], "annual")):
-        raise ValueError("Operating-income profile does not match the selected annual statement")
-    req = request_bytes(f"{cik:010d}", "annual", report["accession"], "income")
-    raw, receipt = cache.get(ENDPOINT, 8760, post_json=req)
-    data, checksums = decode_response(raw, receipt, report, cik, "annual")
-    table = data["income"]
-    url = report["path"] + "/" + profile.table
-    digest = checksums.get(url, "")
-    fiscal_period = "12 months to " + statement["end"]
-    if (table["title"] != profile.title or table["sources"] != [url] or table["currency"] != statement["currency"] or
-            table["money_scale"] != profile.scale or table["columns"].count(fiscal_period) != 1 or
-            not re.fullmatch(r"[0-9a-f]{16}", digest)):
-        raise ValueError("Unverified annual income statement")
-    index = table["columns"].index(fiscal_period)
+    profile = profile_for(cik, report)
+    pinned = (cik, report["accession"]) in PROFILES
+    table, index, receipt, evidence = annual_table(cache, cik, report, statement, "income", profile.title,
+                                                    profile.table if pinned else None, profile.scale if pinned else None)
+    scale = table["money_scale"]
     groups = {"": []}
     group = ""
     for row in table["rows"]:
@@ -236,7 +259,7 @@ def enrich_operating(cache, cik, report, statement):
         if len(unique) != 1:
             raise ValueError(f"Missing or ambiguous income statement row {address}")
         tag, value = unique.pop()
-        return {"line": address, "tag": tag, "value": scaled(value, profile.scale), "sign": sign}
+        return {"line": address, "tag": tag, "value": scaled(value, scale), "sign": sign}
 
     def sum_terms(parts):
         return sum(p["sign"] * p["value"] for p in parts)
@@ -246,10 +269,13 @@ def enrich_operating(cache, cik, report, statement):
         line = get_line(term)
         if facts.get(key, {}).get("value") != line["value"]:
             raise ValueError(f"Annual income statement disagrees with SEC Company Facts on {key}")
+    for line, tag in profile.line_tags:
+        if get_line(line)["tag"] != tag:
+            raise ValueError(f"Filed concept changed for {line}")
     for equation in profile.checks:
         if abs(sum_terms([get_line(t) for t in equation])) > profile.tolerance:
             raise ValueError("Filed operating-income components do not reconcile")
-    if profile.revised_sales and "sales" in facts:
+    if profile.revised_sales and "sales" in profile.anchors:
         facts["sales_and_other_income"] = facts["sales"]
     for key, terms in profile.fields.items():
         parts = [get_line(term) for term in terms]
@@ -260,7 +286,7 @@ def enrich_operating(cache, cik, report, statement):
             "value": value, "tag": OPERATING_TAG if key == "ebit" else parts[0]["tag"],
             "unit": statement["currency"], "start": statement["start"], "form": report["form"],
             "filed": report["filed"], "accession": report["accession"], "url": report["url"], "source": ENDPOINT,
-            "sha256": receipt["sha256"], "table_url": url, "table_sha256_16": digest, "components": parts,
+            "sha256": receipt["sha256"], "components": parts, **evidence,
             "locator": "Reconciled from filed income statement lines" if key == "ebit" else parts[0]["line"],
         }
     result = {**statement, "facts": facts, "income_profiled": True}
