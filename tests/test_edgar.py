@@ -221,6 +221,14 @@ class EdgarTests(unittest.TestCase):
         self.assertNotIn("da",v)
         self.assertEqual(debt_amount({"debt_current_total":20,"debt_noncurrent":80,"short_borrow":12}),100)
 
+    def test_dividend_models_require_common_cash_scope(self):
+        mixed = {"div_mixed_distributions": {"value": 100},
+                 "div": {"value": 100, "tag": "ifrs-full:DividendsPaidClassifiedAsFinancingActivities"}}
+        self.assertIsNone(common_dividends({"facts": mixed}))
+        verified = {**mixed, "div": {"value": 80, "tag": "derived:PaymentsOfOrdinaryShareDividends"}}
+        self.assertEqual(common_dividends({"facts": verified}), 80)
+        self.assertIsNone(common_dividends({"facts": verified, "dividend_scope_gap": True}))
+
     def test_quarter_does_not_take_year_to_date_cashflow(self):
         common={"end":"2026-09-30","filed":"2026-10-29","form":"10-Q","accn":"0000000001-26-000002"}
         def facts(*rows):

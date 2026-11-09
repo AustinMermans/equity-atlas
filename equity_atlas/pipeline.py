@@ -22,6 +22,7 @@ from .parent_equity import enrich_parent_equity, supported as parent_equity_supp
 from .operating import enrich_operating, gap_reason, profile_for as operating_profile, scoped_pretax_facts
 from .cash_balance import UNALLOCATED as CASH_FLOW_UNALLOCATED, cash_gap, cash_requires_scope_review, enrich_cash
 from .debt import TAG as DEBT_TAG, enrich_debt, supported as debt_supported
+from .dividends import COMMON as CASH_COMMON_DIVIDEND, enrich_dividends, supported as dividend_supported
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -245,6 +246,12 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1] = enrich_parent_equity(cache, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual parent equity for {selected['end']}: {exc}")
+                if selected_filing and dividend_supported(cik, selected_filing):
+                    try:
+                        history[-1] = enrich_dividends(cache, obj, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual cash dividend for {selected['end']}: {exc}")
+                        history[-1] = {**history[-1], "dividend_scope_gap": True}
                 if selected_filing and capex_supported(cik, selected_filing):
                     try:
                         history[-1]=enrich_capex(cache,obj,meta,cik,selected_filing,history[-1])
@@ -482,6 +489,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_cash_scoped_gaps":sum(bool((r["statement"] or {}).get("cash_gap")) for r in sec_rows),
         "annual_debt_reconciled":sum((r["statement"] or {}).get("facts", {}).get("debt_total", {}).get("tag")
                                      == DEBT_TAG for r in sec_rows),
+        "annual_dividend_reconciled":sum(bool((r["statement"] or {}).get("annual_dividends")) for r in sec_rows),
+        "annual_common_dividend_reconciled":sum((r["statement"] or {}).get("facts", {}).get("div", {}).get("tag")
+                                                == CASH_COMMON_DIVIDEND for r in sec_rows),
         "annual_funding_reconciled":sum(any(k.startswith("funding_") and v["tag"] == DEBT_TAG
                                            for k, v in (r["statement"] or {}).get("facts", {}).items()) for r in sec_rows),
         "annual_parent_equity_available":sum("book" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),

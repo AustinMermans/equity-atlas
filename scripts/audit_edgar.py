@@ -587,6 +587,28 @@ for symbol, (currency, values) in FUNDING_BALANCES.items():
             raise SystemExit(f"{symbol}: unexpected {field} carrying amount or currency")
         checked += 1
 
+CASH_DISTRIBUTIONS = {
+    "BLK": ("USD", {"div_mixed_distributions": 3_347_000_000}),
+    "BTI": ("GBP", {"div": 5_238_000_000, "div_nci": 100_000_000, "div_hybrid_paid": 54_000_000}),
+    "CM": ("CAD", {"div_mixed_distributions": 3_993_000_000, "div": 3_629_000_000,
+                   "div_preferred_paid": 123_000_000, "div_hybrid_paid": 241_000_000}),
+    "HDB": ("INR", {"div_total": 219_070_200_000, "div": 206_600_700_000, "div_nci": 12_469_500_000}),
+    "RY": ("CAD", {"div_mixed_distributions": 8_800_000_000, "div_nci": 39_000_000}),
+    "SNY": ("EUR", {"div": 4_772_000_000, "div_nci_excluding_bms": 38_000_000}),
+    "SONY": ("JPY", {"div_total": 135_028_000_000, "div": 134_964_000_000,
+                     "div_unallocated_cash_difference": 64_000_000}),
+    "UBS": ("USD", {"div": 2_866_000_000}),
+}
+for symbol, (currency, values) in CASH_DISTRIBUTIONS.items():
+    facts = rows[symbol]["statement"]["facts"]
+    if "div" not in values and "div" in facts:
+        raise SystemExit(f"{symbol}: mixed distributions were reported as common dividends")
+    for field, value in values.items():
+        fact = facts[field]
+        if (fact["unit"], fact["value"]) != (currency, value):
+            raise SystemExit(f"{symbol}: unexpected dividend cash payment or currency for {field}")
+        checked += 1
+
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -642,5 +664,6 @@ for symbol, (file, historical_end, values) in HKEX_AMOUNTS.items():
 if "capex" in rows["0941.HK"]["statement"]["facts"]:
     raise SystemExit("China Mobile: combined cash investing outflow was promoted to model capex")
 issuers.update(FUNDING_BALANCES)
+issuers.update(CASH_DISTRIBUTIONS)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

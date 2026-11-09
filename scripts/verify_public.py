@@ -20,6 +20,8 @@ from equity_atlas.cash_balance import (BROAD as CASH_BROAD, GAPS as CASH_GAPS, P
                                         rule_key as cash_rule_key)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.debt import FACE as DEBT_PINNED, TAG as DEBT_TAG, debt_facts
+from equity_atlas.dividends import (COMMON as DIVIDEND_COMMON, PROFILES as DIVIDEND_PINNED, TAG as DIVIDEND_TAG,
+                                    dividend_facts, supported as dividend_supported)
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
@@ -218,6 +220,14 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual cash-balance reconciliation") from exc
         if any(period["facts"].get(key) != value for key, value in cash.items()):
             raise SystemExit("Cash balance differs from the filed reconciliation")
+    dividends = {}
+    if dividend_evidence := period.get("annual_dividends"):
+        try:
+            dividends = dividend_facts(selected_cik, annual_report, period, dividend_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit("Unverified annual cash distributions") from exc
+        if any(period["facts"].get(key) != value for key, value in dividends.items()):
+            raise SystemExit("Annual cash distributions differ from the filed reconciliation")
     evidence = period.get("annual_earnings_exhibit")
     disclosed = {}
     if evidence:
@@ -310,6 +320,8 @@ def verify_period(period, row):
             official = parent_equity.get(key) == fact
         if fact["tag"] in {BALANCE_LIABILITIES_TAG, BALANCE_EQUITY_TAG}:
             official = balance.get(key) == fact
+        if fact["tag"] in {DIVIDEND_COMMON, DIVIDEND_TAG}:
+            official = dividends.get(key) == fact
         if fact["tag"] == DEBT_TAG:
             official = debt.get(key) == fact
         if fact["tag"] == CASH_TAG:
@@ -582,6 +594,22 @@ if "annual_debt_reconciled" in snap["stats"]:
         raise SystemExit("Annual borrowing evidence coverage does not match published facts")
     if funding_count != snap["stats"].get("annual_funding_reconciled", 0):
         raise SystemExit("Annual funding evidence coverage does not match published facts")
+if "annual_dividend_reconciled" in snap["stats"]:
+    dividend_count = common_count = 0
+    for row in rows:
+        period = row["statement"] or {}
+        if report := period.get("report"):
+            cik = annual_cik(row, report)
+            verified = bool(period.get("annual_dividends"))
+            gap = period.get("dividend_scope_gap", False)
+            if ((cik, report["accession"]) in DIVIDEND_PINNED and not verified or
+                    dividend_supported(cik, report) != (verified or gap) or verified and gap):
+                raise SystemExit(f"Missing or contradictory annual dividend evidence for {row['symbol']}")
+            dividend_count += verified
+            common_count += period["facts"].get("div", {}).get("tag") == DIVIDEND_COMMON
+    if (dividend_count, common_count) != (snap["stats"]["annual_dividend_reconciled"],
+                                         snap["stats"]["annual_common_dividend_reconciled"]):
+        raise SystemExit("Annual dividend coverage does not match published facts")
 if "annual_parent_equity_available" in snap["stats"] and (
         parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
     raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")

@@ -151,10 +151,14 @@ def common_earnings(v, tag):
     return v.get("net")
 
 def common_dividends(statement):
+    if statement.get("dividend_scope_gap"):
+        return None
     v=values(statement)
     fact=statement["facts"].get("div",{})
     if fact.get("tag","").split(":")[-1] in {"PaymentsOfDividendsCommonStock","PaymentsOfOrdinaryShareDividends"}:
         return v["div"]
+    if "div_mixed_distributions" in v:
+        return None
     minority=v.get("minority",v.get("total_equity",0)-v.get("book",0) if "total_equity" in v else 0)
     if minority>0:
         return None
