@@ -13,6 +13,8 @@ from equity_atlas.balance_sheet import EQUITY_TAG as BALANCE_EQUITY_TAG, TAG as 
 from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 NET_FIELDS, reports_only_net_purchases, required_additional_fields, valid_capex_components)
+from equity_atlas.cash_balance import (BROAD as CASH_BROAD, GAPS as CASH_GAPS, PROFILED as CASH_PROFILED,
+                                        TAG as CASH_TAG, cash_facts, cash_gap)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.deere import CIK as DEERE, PINNED as DEERE_PINNED, TAG as BUSINESS_TAG, business_facts
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
@@ -195,6 +197,14 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual balance-sheet liability reconciliation") from exc
         if any(period["facts"].get(key) != value for key, value in balance.items()):
             raise SystemExit("Filed liability or equity amount differs from the balance-sheet reconciliation")
+    cash = {}
+    if cash_evidence := period.get("annual_cash_balance"):
+        try:
+            cash = cash_facts(selected_cik, annual_report, period, cash_evidence)
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            raise SystemExit("Unverified annual cash-balance reconciliation") from exc
+        if any(period["facts"].get(key) != value for key, value in cash.items()):
+            raise SystemExit("Cash balance differs from the filed reconciliation")
     evidence = period.get("annual_earnings_exhibit")
     disclosed = {}
     if evidence:
@@ -287,6 +297,8 @@ def verify_period(period, row):
             official = parent_equity.get(key) == fact
         if fact["tag"] in {BALANCE_LIABILITIES_TAG, BALANCE_EQUITY_TAG}:
             official = balance.get(key) == fact
+        if fact["tag"] == CASH_TAG:
+            official = cash.get(key) == fact
         if fact["tag"] == PRETAX_BRIDGE_TAG:
             official = pretax_scope.get(key) == fact
         if fact["tag"] == NOTE_LINE_TAG:
@@ -496,6 +508,27 @@ if "annual_note_profiled" in snap["stats"] and note_profiles != snap["stats"]["a
     raise SystemExit("Annual filing note coverage does not match published facts")
 if "annual_cash_investment_profiled" in snap["stats"] and capex_profiles != snap["stats"]["annual_cash_investment_profiled"]:
     raise SystemExit("Annual cash investment profile coverage mismatch")
+if "annual_cash_available" in snap["stats"]:
+    cash_available = cash_scoped = 0
+    for row in rows:
+        if not row["id"].startswith("sec:"):
+            continue
+        period = row["statement"]
+        if not period:
+            raise SystemExit(f"Missing annual cash-balance evidence for {row['symbol']}")
+        report, facts = period.get("report"), period["facts"]
+        cik = annual_cik(row, report) if report else None
+        key = (cik, report["accession"]) if report else None
+        expected_gap = cash_gap(cik, report, facts) if report else None
+        if key in CASH_PROFILED and not period.get("annual_cash_balance"):
+            raise SystemExit(f"Missing reviewed cash evidence for {row['symbol']}")
+        if (period.get("cash_gap") != expected_gap or (key in CASH_GAPS and "cash" in facts) or
+                ("cash" not in facts and (not expected_gap or CASH_BROAD not in facts))):
+            raise SystemExit(f"Missing or unverified cash scope for {row['symbol']}")
+        cash_available += "cash" in facts
+        cash_scoped += bool(expected_gap)
+    if (cash_available, cash_scoped) != (snap["stats"]["annual_cash_available"], snap["stats"]["annual_cash_scoped_gaps"]):
+        raise SystemExit("Annual cash coverage does not match published facts")
 if "annual_parent_equity_available" in snap["stats"] and (
         parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
     raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")

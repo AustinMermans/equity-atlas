@@ -26,6 +26,11 @@ const fieldNames={
  other_income_adjusted:'Adjusted other income (non-GAAP)',
  ebit_adjusted:'Adjusted operating profit (non-GAAP)',
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
+ cash_including_restricted:'Cash and equivalents including restricted cash',
+ restricted_cash:'Restricted cash and equivalents',
+ restricted_cash_in_other_assets:'Restricted cash in other assets',
+ cash_and_bank_deposits:'Cash and deposits at banks',
+ insurance_cash:'Run-off insurance cash and equivalents',
  capex_net_of_disposals:'Cash capital purchases net of disposals',
  capex_net_intangibles:'Net cash investment in intangible assets',
  ppe_da_with_impairment_and_rou:'Property and right-of-use depreciation and impairment',
@@ -197,6 +202,7 @@ function detail(r) {
  const componentDetail=v=>{
    if(!v.components?.[0]?.line) return '';
    const titles={
+     'derived:FiledCashBalance':'Filed cash balance components',
      'derived:FiledDepreciationAndAmortization':'Depreciation and amortization evidence',
      'disclosed:ReconciledAnnualNote':'Filed note components',
      'derived:FiledBalanceSheetLiabilities':'Filed balance-sheet liability lines',
@@ -222,6 +228,7 @@ function detail(r) {
  const marketDetail=q?'<h3>Taiwan Stock Exchange</h3><p>'+esc(q.code)+' · NT$'+n2.format(q.close)+' close on '+esc(q.date)+'. Estimated common equity cap NT$'+money.format(q.estimated_cap_twd)+' uses '+n2.format(q.issued_shares)+' issued shares from '+esc(q.shares_date)+'.</p><p><a href="https://data.gov.tw/en/datasets/11549">Closing prices</a> · <a href="https://data.gov.tw/en/datasets/18419">Issuer registry</a> · <a href="https://data.gov.tw/dataset/11764">Exchange multiples</a></p>':'';
  const audit=r.edgar?.latest_annual?'<p>Latest annual filing in SEC submissions: <a href="'+safeUrl(r.edgar.latest_annual.url)+'" target="_blank" rel="noopener noreferrer">'+esc(r.edgar.latest_annual.end)+'</a>.</p>':'';
  const operatingGap=st?.operating_profit_gap?'<p>Operating profit pending · '+esc(st.operating_profit_gap)+'</p>':'';
+ const cashGap=st?.cash_gap?'<p>Cash scope · '+esc(st.cash_gap)+'</p>':'';
  const depreciationGap=st?.depreciation_gap?'<p>Depreciation and amortization pending · '+esc(st.depreciation_gap)+'</p>':'';
  const investmentGap=st?.capital_investment_gap?'<p>Continuing cash investment pending · '+esc(st.capital_investment_gap)+'</p>':'';
  const succession=r.edgar?.succession;
@@ -246,7 +253,7 @@ function detail(r) {
    marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+investmentGap+reconciliation+balanceRounding+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+operatingGap+depreciationGap+cashGap+investmentGap+reconciliation+balanceRounding+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
    (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();

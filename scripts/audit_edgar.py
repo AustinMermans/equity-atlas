@@ -434,6 +434,43 @@ for symbol, (currency, parent, common) in PARENT_EQUITY.items():
 if rows["TD"]["statement"]["facts"]["preferred_and_other_equity"]["value"] != 11_621_000_000:
     raise SystemExit("TD preferred shares and other equity instruments changed")
 checked += 1
+# Annual cash scopes independently reconciled to the selected filings.
+CASH_BALANCES = {
+    "AXP": ("USD", {"cash": 47623, "cash_including_restricted": 47792, "restricted_cash": 169}),
+    "BAC": ("USD", {"cash": 225345, "cash_including_restricted": 231845, "restricted_cash": 6500}),
+    "BRK-B": ("USD", {"cash": 51877, "cash_including_restricted": 52569, "restricted_cash": 692}),
+    "C": ("USD", {"cash": 325161, "cash_including_restricted": 349579, "restricted_cash": 24418}),
+    "CB": ("USD", {"cash": 2272, "cash_including_restricted": 2470, "restricted_cash": 198}),
+    "COF": ("USD", {"cash": 57434, "restricted_cash": 4659}),
+    "CVX": ("USD", {"cash": 6293}), "DHR": ("USD", {"cash": 4615}),
+    "GE": ("USD", {"cash_including_restricted": 12392, "insurance_cash": 1264}),
+    "GEV": ("USD", {"cash": 8469, "cash_including_restricted": 8848, "restricted_cash": 379}),
+    "GILD": ("USD", {"cash": 7564}),
+    "HDB": ("INR", {"cash_including_restricted": 2547835.1}),
+    "JPM": ("USD", {"cash": 314338, "cash_including_restricted": 343338, "restricted_cash": 29000}),
+    "MFG": ("JPY", {"cash": 62606401}), "MMM": ("USD", {"cash": 5235}),
+    "MUFG": ("JPY", {"cash_including_restricted": 90378397, "cash_and_bank_deposits": 90369985,
+                     "restricted_cash_in_other_assets": 8412}),
+    "PG": ("USD", {"cash": 9942}),
+    "PGR": ("USD", {"cash": 125, "restricted_cash": 13, "cash_including_restricted": 138}),
+    "SBUX": ("USD", {"cash": 3219.8}),
+    "WFC": ("USD", {"cash_including_restricted": 172593}),
+}
+for symbol, (currency, values) in CASH_BALANCES.items():
+    facts = rows[symbol]["statement"]["facts"]
+    for key, millions in values.items():
+        fact = facts[key]
+        if (fact["unit"], fact["value"]) != (currency, round(millions * 1_000_000)):
+            raise SystemExit(f"{symbol}: unexpected {key} amount or currency")
+        checked += 1
+for symbol in ("BAC", "JPM"):
+    if rows[symbol]["statement"]["facts"]["cash"].get("rounding_increment") != 100_000_000:
+        raise SystemExit(f"{symbol}: missing restricted-cash source precision")
+for symbol in ("GE", "HDB", "MUFG", "WFC"):
+    period = rows[symbol]["statement"]
+    if "cash" in period["facts"] or not period.get("cash_gap"):
+        raise SystemExit(f"{symbol}: expected a documented cash scope")
+
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -451,5 +488,6 @@ issuers.update(ANNUAL_NOTES)
 issuers.update(LIABILITY_BALANCES)
 issuers.update(BANK_INCOME)
 issuers.update(PARENT_EQUITY)
+issuers.update(CASH_BALANCES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

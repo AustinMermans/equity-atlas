@@ -19,6 +19,7 @@ from .depreciation import (
 )
 from .parent_equity import enrich_parent_equity, supported as parent_equity_supported
 from .operating import enrich_operating, gap_reason, profile_for as operating_profile, scoped_pretax_facts
+from .cash_balance import cash_gap, enrich_cash
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
 from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import (
@@ -222,6 +223,14 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                         history[-1] = enrich_balance(cache, obj, cik, selected_filing, history[-1])
                     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
                         issues.append(f"Annual balance sheet for {selected['end']}: {exc}")
+                if selected_filing and "cash" not in history[-1]["facts"]:
+                    try:
+                        history[-1] = enrich_cash(cache, obj, meta, cik, selected_filing, history[-1])
+                    except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                        issues.append(f"Annual cash balance for {selected['end']}: {exc}")
+                    reason = cash_gap(cik, selected_filing, history[-1]["facts"])
+                    if reason:
+                        history[-1] = {**history[-1], "cash_gap": reason}
                 if selected_filing and parent_equity_supported(cik, selected_filing, history[-1]):
                     try:
                         history[-1] = enrich_parent_equity(cache, cik, selected_filing, history[-1])
@@ -433,6 +442,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
                                    for r in sec_rows),
         "annual_business_scopes_profiled":sum(bool((r["statement"] or {}).get("annual_business_scopes")) for r in sec_rows),
+        "annual_cash_available":sum("cash" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
+        "annual_cash_scoped_gaps":sum(bool((r["statement"] or {}).get("cash_gap")) for r in sec_rows),
         "annual_parent_equity_available":sum("book" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_revenue_available":sum("sales" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
         "annual_liabilities_available":sum("liabilities" in (r["statement"] or {}).get("facts", {}) for r in sec_rows),
