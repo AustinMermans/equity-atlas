@@ -8,7 +8,7 @@ from .catalog import SUCCESSIONS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, linked_report, pdf_pages
-from .rendered_filing import amount, annual_table, filing_tables, scaled, table_belongs_to_filing, valid_table_source
+from .rendered_filing import ENDPOINT, amount, annual_table, filing_tables, scaled, table_belongs_to_filing, valid_table_source
 
 TAG = "derived:FiledDepreciationAndAmortization"
 ADOBE = (796343, "0000796343-26-000003")
@@ -43,6 +43,9 @@ BUD = (1668717, "0001193125-26-088105")
 AIRBNB = (1559720, "0001559720-26-000004")
 NOVARTIS = (1114448, "0001114448-26-000004")
 VALERO = (1035002, "0001628280-26-011499")
+BLACKSTONE = (1393818, "0001193125-26-082531")
+CHUBB = (896159, "0000896159-26-000005")
+PROGRESSIVE = (80661, "0000080661-26-000086")
 CISCO = (858877, "0000858877-26-000132")
 MCDONALDS = (63908, "0000063908-26-000035")
 MCKESSON = (927653, "0000927653-26-000069")
@@ -116,14 +119,15 @@ CASH_TABLES = {
             "da_with_impairment": ((IFRS_CASH_DA_AND_IMPAIRMENT, "Depreciation, amortization and impairment of non-financial assets"),),
         },
     ),
-    (896159, "0000896159-26-000005"): (  # CB
+    CHUBB: (
         "Consolidated Statements Of Cash Flows", "R8.htm", 1_000_000, {
             "amortization": (("us-gaap:PresentValueOfFutureInsuranceProfitsAmortizationExpense1", "Amortization of purchased intangibles"),),
         },
     ),
-    (80661, "0000080661-26-000086"): (  # PGR
+    PROGRESSIVE: (
         "Consolidated Statements of Cash Flows", "R7.htm", 1_000_000, {
             "depreciation": (("us-gaap:Depreciation", "Depreciation"),),
+            "da": (("us-gaap:Depreciation", "Depreciation"),),
         },
     ),
     ADOBE: (
@@ -553,6 +557,23 @@ FINANCE_LEASE_DA = ("us-gaap:FinanceLeaseRightOfUseAssetAmortization", "Leases n
 RETIREMENT_ACCRETION = ("us-gaap:AssetRetirementObligationAccretionExpense", "Asset retirement obligations note · Accretion expense")
 
 NOTES = {
+    PROGRESSIVE: {
+        "amortization_policy_acquisition": (
+            ("us-gaap:DeferredPolicyAcquisitionCostAmortizationExpense", "Consolidated operations · Policy acquisition costs"),
+        ),
+    },
+    CHUBB: {
+        "policy_acquisition_costs": (
+            ("us-gaap:DeferredPolicyAcquisitionCostAmortizationExpense", "Consolidated operations · Policy acquisition costs"),
+        ),
+        "amortization_p_and_c_dac": (
+            ("us-gaap:SupplementalInformationForPropertyCasualtyInsuranceUnderwritersAmortizationOfDeferredPolicyAcquisitionCosts",
+             "Schedule VI · Consolidated property and casualty deferred policy acquisition cost amortization"),
+        ),
+        "amortization_voba": (
+            ("us-gaap:AmortizationOfValueOfBusinessAcquiredVOBA", "Note 7 · Amortization of value of business acquired"),
+        ),
+    },
     HSBC: {
         "ppe_da_with_impairment_and_rou": (HSBC_PPE_DA,),
         "amortization_with_impairment": (
@@ -595,7 +616,7 @@ NOTES = {
         "depreciation_leased_assets": (("us-gaap:OperatingLeasesIncomeStatementDepreciationExpenseOnPropertySubjectToOrHeldForLease",
                                        "Noninterest expense note · Depreciation of assets under operating leases"),),
     },
-    (1393818, "0001193125-26-082531"): {  # BX
+    BLACKSTONE: {
         "depreciation": (("us-gaap:Depreciation", "Note 10 · Furniture, equipment and leasehold improvement depreciation"),),
         "amortization": ((US_AMORTIZATION, "Consolidated cash flow · Amortization of intangibles"),),
     },
@@ -679,6 +700,8 @@ NOTES = {
 }
 
 CHECKS = {
+    PROGRESSIVE: ("da", "-depreciation"),
+    TOTALENERGIES: ("da_tangible_and_mineral_with_impairment", "-ppe_da_with_impairment", "-mineral_amortization_with_impairment"),
     HSBC: ("da_with_impairment", "-ppe_da_with_impairment_and_rou", "-amortization_with_impairment"),
     BMO: ("da", "-da_ppe", "-depreciation_other_assets", "-amortization"),
     CIBC: ("da_with_impairment", "-ppe_da_with_impairment", "-amortization_with_impairment"),
@@ -727,12 +750,46 @@ UBS_ASSET_NOTES = {
         },
     ),
 }
+SANOFI_ASSET_NOTES = {
+    "depreciation": (
+        "Property plant and equipment depreciation expense carrying amount",
+        "D.3.1. Property, plant and equipment owned / Property, plant and equipment owned by Sanofi is comprised of the following items:",
+        "Accumulated depreciation", "Depreciation expense", "Total",
+        ("disclosed:OwnedPropertyDepreciation", "Note D.3.1 · Owned PP&E depreciation"),
+    ),
+    "ppe_da_with_impairment_and_rou": (
+        "Right-of-use assets depreciation and impairment charged in the period",
+        "NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS / D.3.2. Property, plant and equipment leased - right-of-use assets / Right-of-use assets relating to property, plant and equipment leased by Sanofi are analyzed in the table below:",
+        "Accumulated depreciation", "Depreciation and impairment charged in the period", "Right-of-use assets",
+        ("disclosed:LeaseAssetDepreciationWithImpairment", "Note D.3.2 · Right-of-use asset depreciation and impairment"),
+    ),
+    "amortization_intangibles_total": (
+        "Amortization expense",
+        "NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS / Movements in other intangible assets comprise:",
+        "Accumulated amortization", "Amortization expense", "Total other intangible assets",
+        ("disclosed:TotalIntangibleAmortization", "Note D.4 · Total amortization expense in the asset rollforward"),
+    ),
+}
+TTE_ASSET_QUERY = "Depreciation and impairment of tangible assets Amortization and impairment of mineral assets"
+TTE_ASSET_TITLE = ("5.3 Amortization, depreciation and impairment of tangible assets and mineral interests / "
+                   "The amortization, depreciation and impairment of tangible assets and mineral interests are detailed as follows:")
+TTE_ASSET_LINES = {
+    "ppe_da_with_impairment": ("Depreciation and impairment of tangible assets", "disclosed:TangibleDepreciationWithImpairment"),
+    "mineral_amortization_with_impairment": ("Amortization and impairment of mineral assets", "disclosed:MineralAmortizationWithImpairment"),
+    "da_tangible_and_mineral_with_impairment": ("TOTAL", "disclosed:TangibleAndMineralChargesWithImpairment"),
+}
 ASSET_FIELDS = {
+    SANOFI: {field: (spec[-1],) for field, spec in SANOFI_ASSET_NOTES.items()},
+    TOTALENERGIES: {field: ((tag, f"Note 5.3 · {label if label != 'TOTAL' else 'Total tangible and mineral asset charges'}"),)
+                    for field, (label, tag) in TTE_ASSET_LINES.items()},
     CIBC: CIBC_ASSET_LINES,
     UBS: {field: ((tag, label),) for _, _, _, fields in UBS_ASSET_NOTES.values()
           for field, (_, tag, label) in fields.items()},
 }
 GAPS = {
+    BLACKSTONE: "The filing discloses consolidated fixed-asset depreciation and intangible amortization and a separate segment EBITDA adjustment. A consolidated total with all relevant asset scopes is unverified.",
+    CHUBB: "Purchased intangible amortization and insurance acquisition costs have separate disclosure scopes. A consolidated productive-asset depreciation total is unverified.",
+    PROGRESSIVE: "Companywide depreciation and policy acquisition costs have separate disclosure scopes. A newly reported intangible amortization amount needs reconciliation before using a combined total.",
     HSBC: "The filing splits the cash-flow adjustment into property and lease assets and intangibles. Both amounts include impairment.",
     CIBC: "Property and equipment and intangible asset note totals reconcile to the cash-flow adjustment. Both include impairment.",
     UBS: "The asset notes report depreciation, amortization and impairment separately. The note amounts do not fully reconcile to the cash-flow adjustment.",
@@ -745,10 +802,10 @@ GAPS = {
     CISCO: "The cash-flow adjustment includes other items. The property and equipment note covers only those assets. Purchased intangible amortization has a separate disclosure scope.",
     BUD: "The cash-flow adjustment includes impairment. The pure depreciation and amortization amounts require the audited asset notes.",
     (1652044, "0001652044-26-000018"): "The cash-flow statement separately reports property and equipment depreciation. A consolidated intangible-amortization amount needs its own source.",
-    SANOFI: "The cash-flow adjustment includes impairment across several asset classes. Separate the continuing operations depreciation and amortization from those charges.",
+    SANOFI: "The asset notes separate owned property depreciation and intangible amortization. The lease amount includes impairment, and these notes cover only part of the cash-flow adjustment.",
     SOUTHERN: "The cash-flow adjustment uses a broader concept than the income-statement expense. Reconcile accretion and the nuclear fuel treatment before using the total.",
     TESLA: "The cash-flow adjustment includes impairment. The property and equipment note discloses depreciation separately, while the remaining amount needs to be reconciled.",
-    TOTALENERGIES: "The cash-flow adjustment includes impairments of multiple asset classes. Separate the depreciation, depletion and amortization from those charges.",
+    TOTALENERGIES: "The note reconciles the tangible and mineral asset charges. Both include impairment, and the consolidated cash-flow adjustment has a wider scope.",
 }
 
 
@@ -981,6 +1038,57 @@ def ubs_asset_amounts(cache, report, statement, component, pinned):
     return result
 
 
+def document_note_source(part, report):
+    return (part["source"] == ENDPOINT and part.get("table_url") == report["url"] and
+            bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
+
+
+def document_note(cache, cik, report, query, title):
+    tables, digests, receipt = filing_tables(cache, cik, report, query)
+    table, = (t for t in tables if t["source"] == "document table" and t["title"] == title
+              and t["url"] == report["url"])
+    evidence = {"table_url": table["url"], "table_sha256_16": digests.get(table["url"], "")}
+    if not document_note_source({**evidence, "source": receipt["url"]}, report):
+        raise ValueError("Missing SEC checksum for annual asset note")
+    return table, receipt, evidence
+
+
+def sanofi_asset_amounts(cache, report, statement, component):
+    year = int(report["end"][:4])
+    if statement["currency"] != "EUR" or report["end"] != f"{year}-12-31":
+        raise ValueError("Unexpected Sanofi asset-note period or currency")
+    result = {}
+    for field, (query, title, header, label, column_name, term) in SANOFI_ASSET_NOTES.items():
+        table, receipt, evidence = document_note(cache, SANOFI[0], report, query, title)
+        columns = table["columns"]
+        if columns.count(column_name) != 1 or columns[-1] != column_name:
+            raise ValueError("Missing Sanofi consolidated asset note column")
+        rows = table["rows"]
+        start, = (i for i, r in enumerate(rows) if r[0] == f"{header} & impairment at December 31, {year-1}")
+        end, = (i for i, r in enumerate(rows) if r[0] == f"{header} & impairment at December 31, {year}")
+        row, = (r for r in rows[start + 1:end] if r[0] == label)
+        value = -scaled(row[-1], 1_000_000)
+        if len(row) != len(columns) or (len(columns) > 2 and sum(
+                scaled(v, 1_000_000) for v in row[1:-1] if v not in ("-", "—", "–")) != -value):
+            raise ValueError("Sanofi asset note does not add across asset classes")
+        result[field] = [component(*term, value, receipt, **evidence)]
+    return result
+
+
+def tte_asset_amounts(cache, report, statement, component):
+    year = int(report["end"][:4])
+    table, receipt, evidence = document_note(cache, TOTALENERGIES[0], report, TTE_ASSET_QUERY, TTE_ASSET_TITLE)
+    if (statement["currency"] != "USD" or report["end"] != f"{year}-12-31" or
+            table["columns"] != ["line", str(year), str(year - 1), str(year - 2)]):
+        raise ValueError("Unexpected TotalEnergies asset-note period or currency")
+    result = {}
+    for field, (label, _) in TTE_ASSET_LINES.items():
+        value, = (r[1] for r in table["rows"] if r[0] == label)
+        term, = ASSET_FIELDS[TOTALENERGIES][field]
+        result[field] = [component(*term, -scaled(value, 1_000_000), receipt, **evidence)]
+    return result
+
+
 def enrich_depreciation(cache, obj, meta, cik, report, statement):
     key = rule_key(cik, report)
     if ((statement["filing"], statement["end"], statement["period_kind"]) !=
@@ -1009,6 +1117,10 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
 
     if key == CIBC:
         parts.update(cibc_asset_amounts(cache, report, statement, parts["da_with_impairment"][0]["value"], component))
+    if key == SANOFI:
+        parts.update(sanofi_asset_amounts(cache, report, statement, component))
+    if key == TOTALENERGIES:
+        parts.update(tte_asset_amounts(cache, report, statement, component))
     if key == UBS:
         parts.update(ubs_asset_amounts(cache, report, statement, component, key == (cik, report["accession"])))
 
@@ -1070,6 +1182,17 @@ def reconciles(key, facts):
             return False
         if key == AMAZON and not 0 <= facts["amortization_finance_rou"]["value"] <= facts[ppe]["value"]:
             return False
+    if key == PROGRESSIVE:
+        return not facts.get("amortization", {}).get("value")
+    if key == SANOFI:
+        disclosed = sum(facts[field]["value"] for field in (
+            "depreciation", "impairment_ppe_net", "ppe_da_with_impairment_and_rou",
+            "amortization_intangibles_total", "impairment_intangible_net",
+        ))
+        return (facts["amortization"]["value"] <= facts["amortization_intangibles_total"]["value"]
+                and disclosed <= facts["da_with_impairment"]["value"])
+    if key == TOTALENERGIES and facts["da_tangible_and_mineral_with_impairment"]["value"] > facts["da_with_impairment"]["value"]:
+        return False
     bounds = DA_SCOPE_BOUNDS.get(key)
     if bounds:
         lower, upper = bounds
@@ -1092,6 +1215,8 @@ def valid_component(cik, report, field, part):
         return valid_table_source(part, report, filename)
     if key == CIBC and field in CIBC_ASSET_LINES:
         return source == cibc_asset_report_url(report)
+    if key in {SANOFI, TOTALENERGIES} and field in ASSET_FIELDS[key]:
+        return document_note_source(part, report)
     if key == UBS and field in ASSET_FIELDS[UBS]:
         filename, = [filename for _, filename, _, fields in UBS_ASSET_NOTES.values() if field in fields]
         return valid_table_source(part, report, filename if key == (cik, report["accession"]) else None)

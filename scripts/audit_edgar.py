@@ -271,15 +271,16 @@ DEPRECIATION = {
                     "amortization_deferred_customer_acquisition": 52259.1}),
     "HSBC": ("USD", {"da_with_impairment": 4916, "ppe_da_with_impairment_and_rou": 1971,
                      "amortization_with_impairment": 2945}),
+    "CB": ("USD", {"amortization": 301, "policy_acquisition_costs": 9847,
+                   "amortization_p_and_c_dac": 8649, "amortization_voba": 224}),
+    "PGR": ("USD", {"da": 313, "depreciation": 313, "amortization_policy_acquisition": 6096}),
     "AXP": ("USD", {"da": 1777}),
     "BMO": ("CAD", {"da": 2180, "da_ppe": 1015, "depreciation_other_assets": 13, "amortization": 1152}),
     "BX": ("USD", {"depreciation": 98, "amortization": 36.023}),
     "C": ("USD", {"da": 4373}),
-    "CB": ("USD", {"amortization": 301}),
     "CM": ("CAD", {"da_with_impairment": 1178, "ppe_da_with_impairment": 518, "amortization_with_impairment": 660}),
     "IBKR": ("USD", {"da": 61, "amortization_operating_rou": 32}),
     "JPM": ("USD", {"da": 8821, "depreciation_leased_assets": 2418}),
-    "PGR": ("USD", {"depreciation": 313}),
     "SCHW": ("USD", {"da": 1362, "da_excluding_acquired_intangibles": 850, "amortization": 512}),
     "TD": ("CAD", {"da": 2166, "depreciation": 1386, "amortization": 780}),
     "UBS": ("USD", {"da_with_impairment": 3529, "depreciation_ppe_and_software": 3339,
@@ -340,14 +341,17 @@ DEPRECIATION = {
     "SAP": ("EUR", {"da": 1311}),
     "SHEL": ("USD", {"da": 25299}),
     "SNY": ("EUR", {"da_with_impairment": 5678, "amortization": 1776,
-                    "impairment_intangible_net": 2241, "impairment_ppe_net": 68}),
+                    "impairment_intangible_net": 2241, "impairment_ppe_net": 68, "depreciation": 977,
+                    "ppe_da_with_impairment_and_rou": 269, "amortization_intangibles_total": 1924}),
     "SO": ("USD", {"da_with_accretion": 6030, "da_excluding_nuclear_fuel": 5501, "retirement_accretion": 393}),
     "SPOT": ("EUR", {"da": 102}),
     "TMO": ("USD", {"da": 2780}),
     "TSLA": ("USD", {"da_with_impairment": 6148, "da_ppe": 5030, "amortization_finance_rou": 118}),
     "TSM": ("TWD", {"da": 688096.4}),
     "TTE": ("USD", {"da_with_impairment": 13847, "impairment_ppe_and_exploration": 575,
-                     "impairment_intangibles_and_goodwill": 235, "impairment_goodwill": 47}),
+                     "impairment_intangibles_and_goodwill": 235, "impairment_goodwill": 47,
+                     "ppe_da_with_impairment": 12315, "mineral_amortization_with_impairment": 997,
+                     "da_tangible_and_mineral_with_impairment": 13312}),
     "TXN": ("USD", {"da": 1999}),
     "UNP": ("USD", {"da": 2465}),
     "VLO": ("USD", {"da": 3158, "da_cost_of_sales": 3095, "da_general_and_administrative": 63}),
@@ -361,7 +365,7 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("CM", "UBS", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
+for symbol in ("BX", "CB", "CM", "CSCO", "DUK", "GOOG", "HSBC", "SNY", "SO", "TSLA", "TTE", "UBS", "XOM"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")
