@@ -550,16 +550,20 @@ if "annual_cash_available" in snap["stats"]:
     if "annual_cash_unallocated" in snap["stats"] and cash_unallocated_count != snap["stats"]["annual_cash_unallocated"]:
         raise SystemExit("Annual unallocated cash difference coverage does not match published facts")
 if "annual_debt_reconciled" in snap["stats"]:
-    debt_count = 0
+    debt_count = funding_count = 0
     for row in rows:
         period = row["statement"] or {}
         if report := period.get("report"):
             key = (annual_cik(row, report), report["accession"])
             if key in DEBT_PINNED and not period.get("annual_debt"):
                 raise SystemExit(f"Missing reviewed annual borrowing evidence for {row['symbol']}")
-        debt_count += bool(period.get("annual_debt"))
+        if period.get("annual_debt"):
+            debt_count += period["facts"].get("debt_total", {}).get("tag") == DEBT_TAG
+            funding_count += any(k.startswith("funding_") and v["tag"] == DEBT_TAG for k, v in period["facts"].items())
     if debt_count != snap["stats"]["annual_debt_reconciled"]:
         raise SystemExit("Annual borrowing evidence coverage does not match published facts")
+    if funding_count != snap["stats"].get("annual_funding_reconciled", 0):
+        raise SystemExit("Annual funding evidence coverage does not match published facts")
 if "annual_parent_equity_available" in snap["stats"] and (
         parent_equity_available != sec_count or parent_equity_available != snap["stats"]["annual_parent_equity_available"]):
     raise SystemExit(f"Annual parent-equity coverage incomplete: {parent_equity_available}/{sec_count}")

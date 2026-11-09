@@ -514,6 +514,12 @@ for symbol in ("GE", "MUFG"):
 
 # Carrying amounts independently tied to the consolidated balance sheets and notes.
 DEBT_BALANCES = {
+    "ARM": ("USD", 59_000_000, None),
+    "CAT": ("USD", 43_330_000_000, None),
+    "CME": ("USD", 3_422_300_000, None),
+    "EQIX": ("USD", 21_267_000_000, None),
+    "GEV": ("USD", 352_000_000, None),
+    "VRTX": ("USD", 112_200_000, None),
     "ADP": ("USD", 4_965_100_000, None),
     "AEM": ("USD", 196_271_000, 125_199_000),
     "BABA": ("CNY", 249_020_000_000, None),
@@ -541,6 +547,37 @@ for symbol, (currency, debt, leases) in DEBT_BALANCES.items():
             raise SystemExit(f"{symbol}: unexpected {field} carrying amount or currency")
         checked += 1
 
+DEBT_COMPONENTS = {
+    "CAT": [5_514_000_000, 30_696_000_000, 7_120_000_000],
+    "CME": [0, 3_422_300_000],
+    "EQIX": [1_299_000_000, 16_910_000_000, 17_000_000, 686_000_000, 168_000_000, 2_187_000_000],
+    "GEV": [63_000_000, 24_000_000, 265_000_000],
+}
+for symbol, values in DEBT_COMPONENTS.items():
+    fact = rows[symbol]["statement"]["facts"]["debt_total"]
+    if [part["value"] for part in fact["components"]] != values:
+        raise SystemExit(f"{symbol}: unexpected classified borrowing components")
+    checked += len(values)
+
+FUNDING_BALANCES = {
+    "CM": ("CAD", {"funding_secured_borrowings": 65_978_000_000, "funding_subordinated_liabilities": 7_819_000_000}),
+    "HSBC": ("USD", {"funding_debt_securities_face": 99_675_000_000, "funding_subordinated_liabilities": 28_406_000_000}),
+    "IBKR": ("USD", {"funding_short_borrowings": 19_000_000}),
+    "RY": ("CAD", {"funding_subordinated_liabilities": 13_961_000_000}),
+    "SMFG": ("JPY", {"funding_borrowings": 10_551_657_000_000, "funding_debt_securities_face": 16_576_423_000_000}),
+    "TD": ("CAD", {"funding_securitization_liabilities": 40_124_000_000, "funding_subordinated_liabilities": 10_733_000_000}),
+    "UBS": ("USD", {"funding_debt_securities_face": 328_500_000_000}),
+}
+for symbol, (currency, values) in FUNDING_BALANCES.items():
+    facts = rows[symbol]["statement"]["facts"]
+    if "debt_total" in facts:
+        raise SystemExit(f"{symbol}: partial funding amounts were treated as total debt")
+    for field, value in values.items():
+        fact = facts[field]
+        if (fact["unit"], fact["value"]) != (currency, value):
+            raise SystemExit(f"{symbol}: unexpected {field} carrying amount or currency")
+        checked += 1
+
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -560,5 +597,6 @@ issuers.update(BANK_INCOME)
 issuers.update(PARENT_EQUITY)
 issuers.update(CASH_BALANCES)
 issuers.update(DEBT_BALANCES)
+issuers.update(FUNDING_BALANCES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")
