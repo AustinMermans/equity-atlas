@@ -119,6 +119,11 @@ for symbol in reviewed_gaps:
         raise SystemExit(f"{symbol}: expected a documented operating profit gap")
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
+    "AMGN": ("USD", {"da_with_other": 5167}),
+    "AMZN": ("USD", {"da_with_other": 65756}),
+    "BABA": ("CNY", {"da": 45014, "da_ppe": 34963, "amortization": 10051, "ppe_da_with_impairment_and_lease": 37067}),
+    "CRM": ("USD", {"da_ppe": 1200, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
+    "NVO": ("DKK", {"da": 14666, "da_with_impairment": 21982, "asset_impairment": 7316}),
     "0857.HK": ("CNY", {"da": 238036}),
     "ABBV": ("USD", {"da": 8139}),
     "ABNB": ("USD", {"da": 91}),
@@ -175,7 +180,7 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
+for symbol in ("AMGN", "AMZN", "CRM", "CSCO", "GOOG", "SNY", "SO", "TSLA", "TTE"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")

@@ -9,6 +9,11 @@ from .issuer_20f import column, linked_report, pdf_pages
 from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belongs_to_filing
 
 TAG = "derived:FiledDepreciationAndAmortization"
+AMGEN = (318154, "0000318154-26-000010")
+AMAZON = (1018724, "0001018724-26-000004")
+ALIBABA = (1577552, "0001193125-26-231755")
+SALESFORCE = (1108524, "0001108524-26-000060")
+NOVO = (353278, "0000353278-26-000012")
 BUD = (1668717, "0001193125-26-088105")
 AIRBNB = (1559720, "0001559720-26-000004")
 NOVARTIS = (1114448, "0001114448-26-000004")
@@ -21,6 +26,37 @@ NOVARTIS_PDF = "https://www.novartis.com/sites/novartis_com/files/novartis-annua
 # Bind interpretation to the face statement of the exact accession. Tags
 # alone cannot distinguish pure D&A from cash-flow adjustments with impairment.
 CASH_TABLES = {
+    AMGEN: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R9.htm", 1_000_000, {
+            "da_with_other": (("us-gaap:DepreciationDepletionAndAmortization", "Depreciation, amortization and other"),),
+        },
+    ),
+    AMAZON: (
+        "Consolidated Statements of Cash Flows", "R3.htm", 1_000_000, {
+            "da_with_other": (("us-gaap:DepreciationDepletionAndAmortization",
+                               "Depreciation and amortization of property and equipment and capitalized content costs, operating lease assets, and other"),),
+        },
+    ),
+    ALIBABA: (
+        "CONSOLIDATED STATEMENTS OF CASH FLOWS", "R8.htm", 1_000_000, {
+            "amortization": (("us-gaap:AmortizationOfIntangibleAssets", "Amortization of intangible assets and licensed copyrights"),),
+            "ppe_da_with_impairment_and_lease": (("baba:DepreciationAndImpairmentOfPropertyAndEquipmentAndLandUseRights",
+                                                   "Depreciation and impairment of property and equipment, and operating lease cost relating to land use rights"),),
+        },
+    ),
+    SALESFORCE: (
+        "Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, {
+            "da_with_rou_and_impairment": (("us-gaap:DepreciationAndAmortization", "Depreciation and amortization"),),
+            "amortization_deferred_contract_costs": (("us-gaap:CapitalizedContractCostAmortization",
+                                                       "Amortization of costs capitalized to obtain revenue contracts, net"),),
+        },
+    ),
+    NOVO: (
+        "Cash flow statement", "R5.htm", 1_000_000, {
+            "da_with_impairment": (("ifrs-full:AdjustmentsForDepreciationAndAmortisationExpenseAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss",
+                                     "Depreciation, amortisation and impairment losses"),),
+        },
+    ),
     (1108329, "0001193125-23-124228"): (  # 0857.HK
         'Consolidated Statements of Cash Flows', "R4.htm", 1_000_000, {
             "da": (
@@ -340,6 +376,19 @@ PPE_IMPAIRMENT = ("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlant
 
 # Note lines are exact consolidated Company Facts values for the same filing.
 NOTES = {
+    ALIBABA: {
+        "da": (("us-gaap:DepreciationDepletionAndAmortization", "Note 15 · Property and equipment depreciation"),
+               ("us-gaap:AmortizationOfIntangibleAssets", "Amortization of intangible assets and licensed copyrights")),
+        "da_ppe": (("us-gaap:DepreciationDepletionAndAmortization", "Note 15 · Property and equipment depreciation"),),
+    },
+    NOVO: {
+        "da": (("ifrs-full:DepreciationAndAmortisationExpense", "Consolidated depreciation and amortisation expenses"),),
+        "asset_impairment": (
+            ("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlantAndEquipmentIncludingRightofuseAssets",
+             "Impairment of property, plant and equipment including right-of-use assets"),
+            INTANGIBLE_IMPAIRMENT,
+        ),
+    },
     (1467373, "0001467373-26-000049"): {
         "da": (DEPRECIATION, AMORTIZATION),
         "amortization_deferred_transition": (("us-gaap:CapitalizedContractCostAmortization", "Amortization of deferred transition costs"),),
@@ -371,6 +420,7 @@ NOTES = {
 }
 
 CHECKS = {
+    NOVO: ("da_with_impairment", "-da", "-asset_impairment"),
     (1467373, "0001467373-26-000049"): (
         "da_with_other", "-da", "-amortization_deferred_transition", "-operating_lease_cost", "-other_da_adjustment",
     ),
@@ -388,6 +438,9 @@ PDF_FIELDS = {
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
 GAPS = {
+    AMGEN: "The cash-flow adjustment includes other items. The asset notes must supply a consistent depreciation and amortization subtotal.",
+    AMAZON: "The cash-flow adjustment includes content and operating lease items. Reconcile those scopes with the related investments before using a D&A add-back.",
+    SALESFORCE: "The cash-flow adjustment includes amortization and impairment of right-of-use assets. Fixed-asset depreciation and contract-acquisition amortization are shown separately.",
     CISCO: "The cash-flow adjustment includes other items. The property and equipment note covers only those assets. Purchased intangible amortization has a separate disclosure scope.",
     BUD: "The cash-flow adjustment includes impairment. The pure depreciation and amortization amounts require the audited asset notes.",
     (1652044, "0001652044-26-000018"): "The cash-flow statement separately reports property and equipment depreciation. A consolidated intangible-amortization amount needs its own source.",
@@ -400,6 +453,11 @@ GAPS = {
 
 # These tags were verified as partial when used as the company's total.
 PARTIAL_DA = {
+    AMGEN: ("us-gaap:DepreciationDepletionAndAmortization", "da_with_other", "Depreciation, amortization and other"),
+    AMAZON: ("us-gaap:DepreciationDepletionAndAmortization", "da_with_other",
+             "Cash-flow D&A including capitalized content, operating lease assets, and other"),
+    ALIBABA: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe", "Property and equipment depreciation"),
+    SALESFORCE: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe", "Fixed-asset depreciation and amortization"),
     VALERO: ("us-gaap:DepreciationAndAmortization", "da_general_and_administrative", "General and administrative depreciation and amortization"),
     MCDONALDS: ("us-gaap:DepreciationDepletionAndAmortization", "da_general_and_administrative", "Selling, general and administrative depreciation and amortization"),
     MCKESSON: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe_and_finance_lease", "Depreciation of PP&E and amortization of finance lease right-of-use assets"),
@@ -431,10 +489,12 @@ def gap_reason(cik, report):
 def separate_partial_da(statement, key):
     rule = PARTIAL_DA.get(key)
     current = statement["facts"].get("da")
-    if not rule or not current or current["tag"] != rule[0]:
+    if not rule or not current:
         return statement
-    _, field, label = rule
+    tag, field, label = rule
     facts = statement["facts"].copy()
+    if current["tag"] != tag:
+        field, label = "da_tagged_component", "Tagged amount pending scope reconciliation"
     facts[field] = {**facts.pop("da"), "locator": label}
     return {**statement, "facts": facts}
 
@@ -605,6 +665,9 @@ def reconciles(key, facts):
         return False
     if sum((-1 if field.startswith("-") else 1) * facts[field.removeprefix("-")]["value"] for field in check):
         return False
+    if key == ALIBABA:
+        return (facts["da"]["components"][0]["value"] == facts["da_ppe"]["value"] and
+                facts["da"]["components"][1]["value"] == facts["amortization"]["value"])
     if key == BUD:
         return 0 < facts["da"]["value"] <= facts["da_with_impairment"]["value"]
     if key == (1730168, "0001730168-25-000121"):
