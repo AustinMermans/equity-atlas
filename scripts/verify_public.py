@@ -11,6 +11,7 @@ from equity_atlas import hkex
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
 from equity_atlas.balance_sheet import EQUITY_TAG as BALANCE_EQUITY_TAG, TAG as BALANCE_LIABILITIES_TAG, balance_facts
+from equity_atlas.borrowing_cash import TAG as BORROWING_CASH_TAG, borrowing_cash_facts
 from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
                                 AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
                                 NET_FIELDS, reports_only_net_purchases, required_additional_fields, valid_capex_components)
@@ -212,6 +213,15 @@ def verify_period(period, row):
             raise SystemExit("Unverified annual borrowing reconciliation") from exc
         if any(period["facts"].get(key) != value for key, value in debt.items()):
             raise SystemExit("Annual borrowing differs from its filed components")
+    borrowing_cash = {}
+    if evidence := period.get("annual_borrowing_cash"):
+        try:
+            borrowing_cash, pending = borrowing_cash_facts(annual_report, period, evidence)
+        except (ValueError, KeyError, TypeError, IndexError, AttributeError) as exc:
+            raise SystemExit("Unverified annual borrowing cash flows") from exc
+        if (pending != period.get("borrowing_cash_pending") or
+                any(period["facts"].get(key) != value for key, value in borrowing_cash.items())):
+            raise SystemExit("Annual borrowing cash flows differ from their filed components")
     cash = {}
     if cash_evidence := period.get("annual_cash_balance"):
         try:
@@ -322,6 +332,8 @@ def verify_period(period, row):
             official = balance.get(key) == fact
         if fact["tag"] in {DIVIDEND_COMMON, DIVIDEND_TAG}:
             official = dividends.get(key) == fact
+        if fact["tag"] == BORROWING_CASH_TAG:
+            official = borrowing_cash.get(key) == fact
         if fact["tag"] == DEBT_TAG:
             official = debt.get(key) == fact
         if fact["tag"] == CASH_TAG:
@@ -594,6 +606,12 @@ if "annual_debt_reconciled" in snap["stats"]:
         raise SystemExit("Annual borrowing evidence coverage does not match published facts")
     if funding_count != snap["stats"].get("annual_funding_reconciled", 0):
         raise SystemExit("Annual funding evidence coverage does not match published facts")
+if "annual_net_borrowing_cash" in snap["stats"]:
+    periods = [row["statement"] or {} for row in rows if row["id"].startswith("sec:")]
+    net = sum(p.get("facts", {}).get("debt_net", {}).get("tag") == BORROWING_CASH_TAG for p in periods)
+    gaps = sum(bool(p.get("borrowing_cash_pending")) for p in periods)
+    if (net, gaps) != (snap["stats"]["annual_net_borrowing_cash"], snap["stats"]["annual_borrowing_cash_scope_gaps"]):
+        raise SystemExit("Annual borrowing cash-flow coverage does not match the filed facts")
 if "annual_dividend_reconciled" in snap["stats"]:
     dividend_count = common_count = 0
     for row in rows:

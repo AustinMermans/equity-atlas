@@ -1,9 +1,10 @@
 """CFA valuation primitives and deterministic, evidence-gated screen."""
 from datetime import date
 from statistics import median
+from .borrowing_cash import TAG as BORROWING_CASH_TAG
 from .facts import balance_check, temporary_equity_fields, values
 
-VERSION = "2026.11-v2"
+VERSION = "2026.11-v3"
 FINANCIAL = {"bank","insurer","broker"}
 CYCLE = {"commodity","cyclical"}
 CORE = {"operating","cyclical","commodity","utility"}
@@ -169,6 +170,18 @@ def common_dividends(statement):
             return v["div_total"] - v["div_preferred_paid"]
         return None
     return None if v.get("div_preferred_paid",0)>0 else v.get("div")
+
+def net_debt_cash(statement):
+    """Cash from verified borrowing, adjusted for separately identified payments."""
+    facts = statement["facts"]
+    if statement.get("borrowing_cash_pending") or facts.get("debt_net", {}).get("tag") != BORROWING_CASH_TAG:
+        return None
+    v = values(statement)
+    # Cash investment already includes some vendor-financed asset payments.
+    if v.get("financed_asset_principal_paid", 0) != v.get("capex_financing_payment", 0):
+        return None
+    return v["debt_net"] - v.get("lease_principal_paid", 0) - v.get("debt_issuance_cost_paid", 0)
+
 
 def observed(case):
     """Raw ratios in issuer dollars. No division by missing/nonpositive fundamentals."""
@@ -480,22 +493,14 @@ def fit(case, peers, override=None):
         fc=override.get("fcfe")
         if (not fc or not fc.get("source") or fc.get("currency")!=case["statement"]["currency"] or
             fc.get("period")!=case["statement"]["end"] or fc.get("published","9999")>case["as_of"]):
-            # Require evidence for both directions of debt cash flows or an aggregate.
-            def net_debt_cash(row):
-                if "debt_net" in row:
-                    return row["debt_net"]
-                if {"lt_issued","lt_repaid","st_issued","st_repaid"}<=row.keys():
-                    return row["lt_issued"]-row["lt_repaid"]+row["st_issued"]-row["st_repaid"]
-                if {"lt_issued","lt_repaid"}<=row.keys() and row.get("short_borrow") == 0:
-                    return row["lt_issued"]-row["lt_repaid"]
-                return None
             basis=sales_hist[-3:]
-            borrows=[net_debt_cash(x) for x in basis]
+            borrows=[net_debt_cash(x) for x in comparable_sales_history(h)[-3:]]
             lev=[debt_amount(x)/x["book"] for x in basis if debt_amount(x) is not None and x.get("book",0)>0]
             if investment_gap:
                 block("fcfe",investment_gap)
-            elif (case["accounting"]!="US GAAP" or k in CYCLE or len(basis)<3 or None in borrows or
-                len(lev)<3 or max(lev)-min(lev)>.35 or not 0<=median(lev)<3 or
+            elif len(basis)<3 or None in borrows:
+                block("fcfe","Needs three comparable years of verified borrowing cash flows and separately identified financing payments.")
+            elif (case["accounting"]!="US GAAP" or k in CYCLE or len(lev)<3 or max(lev)-min(lev)>.35 or not 0<=median(lev)<3 or
                 net is None or net<=0 or not terminal_roe or terminal_roe<=g or
                 not all(x.get("sales",0)>0 and "cfo" in x and x.get("capex",-1)>=0 for x in basis)):
                 block("fcfe","Needs complete debt cash flows, stable leverage, a positive earnings anchor and a consistent CFO/interest basis.")
@@ -514,7 +519,7 @@ def fit(case, peers, override=None):
                         return fcfe_value(flows,re+d,rev*(1+g+x)*income_margin,terminal_roe,g+x)
                     calc("fcfe",forecast,{"fcfe_sales":flow_margin,"leverage":lev,"re":re,
                          "terminal_roe":terminal_roe,"g":g},
-                         "Operating cash flow less cash investment plus reported net borrowing; fades to sustainable equity reinvestment.")
+                         "Operating cash flow less cash investment plus net borrowing after separately reported financing payments; fades to sustainable equity reinvestment.")
         else:
             calc("fcfe",lambda d,x:fcfe_value(fc["flows"],re+d,fc["terminal_net"],fc["terminal_roe"],g+x),
                  {**fc,"re":re,"g":g},"Explicit source-linked cash flows after financing, discounted at the cost of equity.")

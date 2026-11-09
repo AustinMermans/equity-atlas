@@ -622,6 +622,26 @@ for symbol, (currency, values) in CASH_DISTRIBUTIONS.items():
             raise SystemExit(f"{symbol}: unexpected dividend cash payment or currency for {field}")
         checked += 1
 
+BORROWING_CASH_AMOUNTS = {
+    "AAPL": ("USD", {"debt_net": -18_307_000_000}),
+    "MSFT": ("USD", {"debt_net": -3_000_000_000}),
+    "COST": ("USD", {"debt_net_identified": 403_000_000}),
+    "AMZN": ("USD", {"debt_net_identified": 10_652_000_000, "lease_principal_paid": 1_557_000_000}),
+    "AVGO": ("USD", {"debt_net": -2_812_000_000}),
+    "META": ("USD", {"debt_net": 29_906_000_000, "lease_principal_paid": 2_524_000_000}),
+    "NVDA": ("USD", {"debt_net": 0, "financed_asset_principal_paid": 101_000_000}),
+    "BP": ("USD", {"debt_net": -3_314_000_000, "lease_principal_paid": 3_091_000_000}),
+    "EQNR": ("USD", {"debt_net_identified": 3_515_000_000, "lease_principal_paid": 1_459_000_000}),
+}
+for symbol, (currency, expected) in BORROWING_CASH_AMOUNTS.items():
+    facts = rows[symbol]["statement"]["facts"]
+    for key, amount in expected.items():
+        if (facts[key]["unit"], facts[key]["value"]) != (currency, amount):
+            raise SystemExit(f"{symbol}: unexpected borrowing cash flow for {key}")
+        checked += 1
+    if "debt_net_identified" in expected and "debt_net" in facts:
+        raise SystemExit(f"{symbol}: unresolved financing lines were treated as complete borrowing cash flows")
+
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
@@ -678,5 +698,6 @@ if "capex" in rows["0941.HK"]["statement"]["facts"]:
     raise SystemExit("China Mobile: combined cash investing outflow was promoted to model capex")
 issuers.update(FUNDING_BALANCES)
 issuers.update(CASH_DISTRIBUTIONS)
+issuers.update(BORROWING_CASH_AMOUNTS)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

@@ -12,6 +12,7 @@ import time
 from . import hkex
 from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
 from .balance_sheet import TAG as BALANCE_LIABILITIES_TAG, enrich_balance, supported as balance_supported
+from .borrowing_cash import TAG as BORROWING_CASH_TAG, enrich_borrowing_cash, supported as borrowing_cash_supported
 from .capex import CAPEX_TAG, NET_PURCHASES, enrich_capex, supported as capex_supported
 from .deere import enrich_business_scopes, supported as business_scopes_supported
 from .depreciation import (
@@ -133,7 +134,8 @@ def hold_unreconciled(statement, field):
     return {**statement,"facts":facts}
 
 
-def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, annual_only=False):
+def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, annual_only=False,
+                   borrowing_history=False):
     choices=[]
     issues=[]
     entity=None
@@ -296,6 +298,17 @@ def source_history(cache, cik, lei, day, sec_ttl_hours=36, audit_edgar=False, an
                     reason=gap_reason(cik,selected_filing)
                     if reason:
                         history[-1]={**history[-1],"operating_profit_gap":reason}
+                # The public filing view needs the latest statement. Valuation also needs
+                # the preceding two years from their own filed annual reports.
+                borrowing_years = 3 if borrowing_history and accounting(history) == "US GAAP" else 1
+                for index in range(max(0, len(history) - borrowing_years), len(history)):
+                    period = history[index]
+                    report = filings.get(period["filing"])
+                    if report and borrowing_cash_supported(obj, report, period):
+                        try:
+                            history[index] = enrich_borrowing_cash(cache, obj, cik, report, period)
+                        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+                            issues.append(f"Annual borrowing cash flow for {period['end']}: {exc}")
                 annual_anchor=annual or predecessor_annual
                 if not annual_only and interim and (not annual_anchor or interim["end"] > annual_anchor["end"]):
                     audit.update(interim_statements(cache,obj,meta,day,cik,filings,annual_anchor,interim,issues))
@@ -489,6 +502,9 @@ def make_public(cache, csv_path, out, day, open_market=False):
         "annual_cash_scoped_gaps":sum(bool((r["statement"] or {}).get("cash_gap")) for r in sec_rows),
         "annual_debt_reconciled":sum((r["statement"] or {}).get("facts", {}).get("debt_total", {}).get("tag")
                                      == DEBT_TAG for r in sec_rows),
+        "annual_net_borrowing_cash":sum((r["statement"] or {}).get("facts", {}).get("debt_net", {}).get("tag")
+                                        == BORROWING_CASH_TAG for r in sec_rows),
+        "annual_borrowing_cash_scope_gaps":sum(bool((r["statement"] or {}).get("borrowing_cash_pending")) for r in sec_rows),
         "annual_dividend_reconciled":sum(bool((r["statement"] or {}).get("annual_dividends")) for r in sec_rows),
         "annual_common_dividend_reconciled":sum((r["statement"] or {}).get("facts", {}).get("div", {}).get("tag")
                                                 == CASH_COMMON_DIVIDEND for r in sec_rows),
@@ -560,7 +576,7 @@ def run(cache, out, *, count=100, floor=None, ranking=None, overrides=None):
                    and classify(r["symbol"],0)[0]=="unknown"})
     sec_details=parallel(to_sic,lambda cik:cache.json(sec_meta(cik),168))
     work=[(r["cik"],r["lei"]) for r in ranked if r["cik"] or r["lei"]]
-    harvested=parallel(work,lambda x:source_history(cache,*x,day,audit_edgar=True))
+    harvested=parallel(work,lambda x:source_history(cache,*x,day,audit_edgar=True,borrowing_history=True))
     cases=[]
     for r in ranked:
         sym=r["symbol"]

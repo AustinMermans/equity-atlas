@@ -19,7 +19,8 @@ from equity_atlas.facts import balance_check, from_sec, precise_duplicates
 from equity_atlas.inline import periods_from_inline
 from equity_atlas.issuer_20f import column, linked_report, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
-from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount
+from equity_atlas.borrowing_cash import TAG as BORROWING_CASH_TAG, role as borrowing_role
+from equity_atlas.models import common_book, common_dividends, common_earnings, debt_amount, net_debt_cash
 
 DAY = date(2026, 11, 9)
 META = {"url": "https://data.sec.gov/api/example", "sha256": "example"}
@@ -231,6 +232,18 @@ class EdgarTests(unittest.TestCase):
         verified = {**mixed, "div": {"value": 80, "tag": "derived:PaymentsOfOrdinaryShareDividends"}}
         self.assertEqual(common_dividends({"facts": verified}), 80)
         self.assertIsNone(common_dividends({"facts": verified, "dividend_scope_gap": True}))
+
+    def test_net_borrowing_requires_scoped_cash_lines(self):
+        self.assertEqual(borrowing_role("us-gaap:ProceedsFromShortTermDebt", "Short-term debt, and other", 50),
+                         "unallocated")
+        facts = {"debt_net": {"value": 100, "tag": BORROWING_CASH_TAG},
+                 "lease_principal_paid": {"value": 20}, "debt_issuance_cost_paid": {"value": 5},
+                 "financed_asset_principal_paid": {"value": 10}, "capex_financing_payment": {"value": 10}}
+        self.assertEqual(net_debt_cash({"facts": facts}), 75)
+        self.assertIsNone(net_debt_cash({"facts": facts, "borrowing_cash_pending": ["Mixed"]}))
+        self.assertIsNone(net_debt_cash({"facts": {**facts, "capex_financing_payment": {"value": 0}}}))
+        self.assertIsNone(net_debt_cash({"facts": {"short_borrow": {"value": 0}, "lt_issued": {"value": 30},
+                                                  "lt_repaid": {"value": 40}}}))
 
     def test_quarter_does_not_take_year_to_date_cashflow(self):
         common={"end":"2026-09-30","filed":"2026-10-29","form":"10-Q","accn":"0000000001-26-000002"}

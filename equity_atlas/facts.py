@@ -67,7 +67,7 @@ TAGS = {
     "preferred_earnings_adjustment": "PreferredStockDividendsAndOtherAdjustments",
     "buybacks": "PaymentsForRepurchaseOfCommonStock PaymentsToAcquireOrRedeemEntitysShares",
     "issuance": "ProceedsFromStockPlans ProceedsFromIssuanceOfCommonStock ProceedsFromIssuingShares",
-    "debt_net": "ProceedsFromRepaymentsOfDebt",
+    "debt_net_tagged": "ProceedsFromRepaymentsOfDebt",
     "da": "DepreciationDepletionAndAmortization DepreciationAndAmortization DepreciationAndAmortisationExpense",
     "da_with_accretion": "DepreciationAmortizationAndAccretionNet",
     "depreciation": "Depreciation DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
