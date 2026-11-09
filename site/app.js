@@ -26,6 +26,12 @@ const fieldNames={
  other_income_adjusted:'Adjusted other income (non-GAAP)',
  ebit_adjusted:'Adjusted operating profit (non-GAAP)',
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
+ capex_net_of_disposals:'Cash capital purchases net of disposals',
+ capex_disposal_proceeds:'Cash proceeds from disposals of productive assets',
+ depreciation_other_assets:'Depreciation of other assets',
+ da_excluding_acquired_intangibles:'D&A excluding acquired intangible amortization',
+ amortization_operating_rou:'Amortization of operating lease assets',
+ depreciation_leased_assets:'Depreciation on assets leased to customers',
  capex_intangibles_discontinued:'Cash intangible purchases by discontinued operations',
  capex_intangibles_continuing:'Cash intangible purchases by continuing operations',
  capex_exploration_capitalized:'Capitalized exploration and evaluation cash spending',
@@ -106,11 +112,11 @@ function render() {
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
  const capexDetail=v=>{
-   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment].includes(v)) return '';
+   if(v.tag!=='derived:CashCapitalInvestment'&&![st?.facts?.capex_reported_total,st?.facts?.capex_mixed_outflow,st?.facts?.capex_financing_payment,st?.facts?.capex_net_of_disposals,st?.facts?.capex_disposal_proceeds].includes(v)) return '';
    const components=v.components||[v];
    return '<details><summary>Filed cash investment lines</summary><ul>'+components.map(part=>{
      const source=part.table_url||part.source;
-     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?'SEC table via Canli Capital':source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
+     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?(part.source===part.table_url?'SEC rendered statement':'SEC table via Canli Capital'):source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
    }).join('')+'</ul></details>';
  };
  const componentDetail=v=>{

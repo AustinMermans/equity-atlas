@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.annual_exhibit import (OPERATING_TAG as CLIENT_FUNDS_EBIT_TAG, PINNED as EXHIBIT_PINNED,
                                          TAG as EXHIBIT_TAG, exhibit_facts)
 from equity_atlas.capex import (ADDITIONAL_FIELDS as CAPEX_ADDITIONAL_FIELDS, APPLOVIN, APP_INVESTMENT_GAP,
-                                INTANGIBLES, CAPEX_TAG, PINNED as CAPEX_PINNED,
-                                required_additional_fields, valid_capex_components)
+                                AXP, CAPEX_TAG, DISPOSAL_PROCEEDS, INTANGIBLES, NET_PURCHASES, PINNED as CAPEX_PINNED,
+                                reports_only_net_purchases, required_additional_fields, valid_capex_components)
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.depreciation import (PINNED as DEPRECIATION_PINNED, TAG as DEPRECIATION_TAG, gap_reason as depreciation_gap,
                                        profile_fields as depreciation_fields, reconciles as depreciation_reconciles,
@@ -213,16 +213,19 @@ def verify_period(period, row):
         if fact["tag"] == CAPEX_TAG or key in CAPEX_ADDITIONAL_FIELDS:
             report = annual_report
             components = fact.get("components", []) if key == "capex" else [fact]
+            signed_net = key == NET_PURCHASES or (key == "capex" and selected_cik == AXP[0])
             official = bool(
                 report and period["period_kind"] == "annual" and
                 valid_capex_components(components, selected_cik, report, key) and
                 period["filing"] == report["accession"] and period["end"] == report["end"] and
                 fact["value"] == sum(p["value"] for p in components) and
+                (key == NET_PURCHASES or fact["value"] >= 0) and
                 fact["source"] == components[0]["source"] and fact["sha256"] == components[0]["sha256"] and
                 all(p["url"] == report["url"] and p["accession"] == report["accession"] and
                     p["filed"] == report["filed"] and p["form"] == report["form"] and
                     p["start"] == period["start"] and p["unit"] == period["currency"] and
-                    math.isfinite(p["value"]) and p["value"] >= 0 and bool(p.get("locator")) and
+                    math.isfinite(p["value"]) and (p["value"] >= 0 or signed_net and p is components[0]) and
+                    bool(p.get("locator")) and
                     re.fullmatch(r"[0-9a-f]{64}", p["sha256"])
                     for p in components) and
                 all(fact[k] == components[0][k] for k in ("url", "accession", "filed", "form", "start", "unit"))
@@ -284,7 +287,13 @@ for row in rows:
             period = row["statement"]
             report = period.get("report")
             cik = annual_cik(row, report) if report else None
-            profiled = period["facts"].get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG}
+            facts = period["facts"]
+            net_only = report and reports_only_net_purchases(cik, report)
+            profiled = NET_PURCHASES in facts if net_only else facts.get("capex", {}).get("tag") in {
+                CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG,
+            }
+            if net_only and "capex" in facts:
+                raise SystemExit(f"Net purchases were promoted to gross cash investment for {row['symbol']}")
             if report and (cik, report["accession"]) in CAPEX_PINNED and not profiled:
                 raise SystemExit(f"Refusing to lose verified annual cash investment for {row['symbol']}")
             if profiled and report and not required_additional_fields(cik, report) <= period["facts"].keys():
@@ -292,6 +301,9 @@ for row in rows:
             if cik == 1046179 and period.get("route") == WORKBOOK_ROUTE:
                 if period["facts"].get("capex", {}).get("tag") != WORKBOOK_CAPEX_TAG:
                     raise SystemExit("Missing TSMC workbook cash-investment total")
+            if profiled and cik == AXP[0]:
+                if facts["capex"]["components"] != [facts[NET_PURCHASES], facts[DISPOSAL_PROCEEDS]]:
+                    raise SystemExit("American Express gross purchases do not match the filed net and sales lines")
             if report and (cik, report["accession"]) == APPLOVIN:
                 facts = period["facts"]
                 intangible, = (p["value"] for p in facts["capex"]["components"] if p["tag"] == INTANGIBLES)

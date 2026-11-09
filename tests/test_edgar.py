@@ -6,11 +6,12 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from equity_atlas.capex import enrich_capex, valid_capex_components
+from equity_atlas.capex import cash_activity, enrich_capex, valid_capex_components
 from equity_atlas.catalog import cik_on
 from equity_atlas.depreciation import enrich_depreciation
 from equity_atlas.fetch import Cache
 from equity_atlas.rendered_filing import ENDPOINT
+from equity_atlas.sec_rendered import read_cash_flow
 from equity_atlas.operating import enrich_operating
 from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
 from equity_atlas.facts import balance_check, from_sec, precise_duplicates
@@ -24,6 +25,34 @@ META = {"url": "https://data.sec.gov/api/example", "sha256": "example"}
 
 
 class EdgarTests(unittest.TestCase):
+    def test_sec_cash_flow_fallback_uses_current_year_and_separates_financing_first(self):
+        cfo = "ifrs-full:CashFlowsFromUsedInOperatingActivities"
+        investing = "ifrs-full:CashFlowsFromUsedInInvestingActivities"
+        financing = "ifrs-full:CashFlowsFromUsedInFinancingActivities"
+        net = "bank:NetPurchases"
+        rows = [
+            ("Operating cash", cfo, "500", "400"),
+            ("Financing cash before subtotal", net, "(41)", "(40)"),
+            ("Financing cash", financing, "100", "200"),
+            ("Net purchase", net, "(9)", "(8)"),
+            ("Investing cash", investing, "50", "60"),
+        ]
+        header = ("<table class='report'><tr><th>Consolidated cash flows - CAD ($)<br>$ in Millions</th>"
+                  "<th>12 Months Ended</th></tr><tr><th>Oct. 31, 2024</th><th>Oct. 31, 2025</th></tr>")
+        body = "".join(
+            f"""<tr><td><a onclick="Show.showAR(this, 'defref_{tag.replace(":", "_")}', window)">{label}</a></td>"""
+            f'<td class="num">{prior}</td><td class="num">{current}</td></tr>'
+            for label, tag, current, prior in rows
+        )
+        raw = (header + body + "</table>").encode()
+        table, index = read_cash_flow(raw, "Consolidated cash flows", "CAD", "2025-10-31", 1_000_000)
+        self.assertEqual(table["rows"][0][index], 500)
+        invest, finance = cash_activity(table, index, cfo, financing=True)
+        self.assertEqual([r[index] for r in invest["rows"]], [-9])
+        self.assertEqual([r[index] for r in finance["rows"]], [-41])
+        with self.assertRaisesRegex(ValueError, "title, currency, units or period"):
+            read_cash_flow(raw, "Consolidated cash flows", "USD", "2025-10-31", 1_000_000)
+
     def test_depreciation_rule_rolls_forward_after_filing_and_scope_checks(self):
         cik = 1551152
         accession = "0001551152-27-000011"

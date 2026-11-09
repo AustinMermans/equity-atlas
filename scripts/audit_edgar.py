@@ -62,6 +62,12 @@ for kind, expected in {
         raise SystemExit("SO standalone quarter contains year-to-date cash flow")
 # Independently checked face-statement and reconciliation amounts, in base units.
 CASH_INVESTMENT = {
+    "AXP": ("USD", 2_426_000_000),
+    "C": ("USD", 6_520_000_000),
+    "IBKR": ("USD", 67_000_000),
+    "PGR": ("USD", 348_000_000),
+    "SCHW": ("USD", 548_000_000),
+    "UBS": ("USD", 2_362_000_000),
     "BHP": ("USD", 9_910_000_000),
     "0941.HK": ("CNY", 207_267_000_000),
     "ARM": ("USD", 575_000_000),
@@ -98,6 +104,13 @@ for symbol, expected in CASH_INVESTMENT.items():
         raise SystemExit(f"{symbol} cash investment: expected {expected}; got {fact}")
     checked += 1
 OTHER_CASH_FLOWS = (
+    ("AXP", "capex_net_of_disposals", 2_425_000_000),
+    ("AXP", "capex_disposal_proceeds", 1_000_000),
+    ("BMO", "capex_net_of_disposals", 1_729_000_000),
+    ("CM", "capex_net_of_disposals", 1_109_000_000),
+    ("PGR", "capex_disposal_proceeds", 80_000_000),
+    ("TD", "capex_net_of_disposals", 2_145_000_000),
+    ("UBS", "capex_disposal_proceeds", 209_000_000),
     ("APP", "capex_intangibles_discontinued", 22_429_000),
     ("APP", "capex_intangibles_continuing", 5_889_000),
     ("BHP", "capex_ppe", 9_849_000_000),
@@ -182,6 +195,18 @@ for symbol, fields in ANNUAL_NOTES.items():
         checked += 1 + len(expected)
 # Face-statement and note reconciliations, in millions of reporting currency.
 DEPRECIATION = {
+    "AXP": ("USD", {"da": 1777}),
+    "BMO": ("CAD", {"da": 2180, "da_ppe": 1015, "depreciation_other_assets": 13, "amortization": 1152}),
+    "BX": ("USD", {"depreciation": 98, "amortization": 36.023}),
+    "C": ("USD", {"da": 4373}),
+    "CB": ("USD", {"amortization": 301}),
+    "CM": ("CAD", {"da_with_impairment": 1178}),
+    "IBKR": ("USD", {"da": 61, "amortization_operating_rou": 32}),
+    "JPM": ("USD", {"da": 8821, "depreciation_leased_assets": 2418}),
+    "PGR": ("USD", {"depreciation": 313}),
+    "SCHW": ("USD", {"da": 1362, "da_excluding_acquired_intangibles": 850, "amortization": 512}),
+    "TD": ("CAD", {"da": 2166, "depreciation": 1386, "amortization": 780}),
+    "UBS": ("USD", {"da_with_impairment": 3529}),
     "ADBE": ("USD", {"da": 546, "da_with_accretion": 818}),
     "APP": ("USD", {"da": 123.104, "da_with_writeoffs": 194.778, "da_ppe_and_finance_lease": 25.7, "amortization": 97.404}),
     "DUK": ("USD", {"da_with_accretion": 7704, "da_excluding_nuclear_fuel": 6324, "retirement_accretion": 474}),
@@ -259,10 +284,13 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
+for symbol in ("CM", "UBS", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")
+for symbol in ("BMO", "CM", "TD"):
+    if "capex" in rows[symbol]["statement"]["facts"]:
+        raise SystemExit(f"{symbol}: net purchases must remain separate from gross cash investment")
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
 for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
     if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:

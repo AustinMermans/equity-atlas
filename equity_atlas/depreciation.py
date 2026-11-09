@@ -7,7 +7,7 @@ from .catalog import SUCCESSIONS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, linked_report, pdf_pages
-from .rendered_filing import ENDPOINT, amount, annual_table, scaled, table_belongs_to_filing
+from .rendered_filing import amount, annual_table, scaled, valid_table_source
 
 TAG = "derived:FiledDepreciationAndAmortization"
 ADOBE = (796343, "0000796343-26-000003")
@@ -49,7 +49,79 @@ NOVARTIS_PDF = "https://www.novartis.com/sites/novartis_com/files/novartis-annua
 
 # Bind interpretation to the face statement of the exact accession. Tags
 # alone cannot distinguish pure D&A from cash-flow adjustments with impairment.
+CASH_DA = ("us-gaap:DepreciationAmortizationAndAccretionNet", "Depreciation and amortization")
+SCHWAB = (316709, "0000316709-26-000009")
+SCHWAB_DA = ("schw:DepreciationAndAmortizationExcludingAmortizationOfIntangibleAssets", "Depreciation and amortization")
+SCHWAB_AMORTIZATION = (US_AMORTIZATION, "Amortization of acquired intangible assets")
+BMO = (927971, "0001193125-25-307982")
+BMO_PPE = ("bmo:AdjustmentsForDepreciationOfPremisesAndEquipment", "Depreciation of premises and equipment (Note 8)")
+BMO_OTHER = ("bmo:AdjustmentsForDepreciationOfOtherAssets", "Depreciation of other assets")
+BMO_AMORTIZATION = ("bmo:AdjustmentsForAmortizationOfIntangibleAssets", "Amortization of intangible assets (Note 10)")
+CIBC = (1045520, "0001193125-25-307488")
+JPM = (19617, "0001628280-26-008131")
+TD = (947263, "0001562762-25-000289")
+TD_DEPRECIATION = ("ifrs-full:AdjustmentsForDepreciationExpense", "Depreciation")
+TD_AMORTIZATION = ("td:AdjustmentsForAmortizationExpenseOfOtherIntangibles", "Amortization of other intangibles")
+UBS = (1610520, "0001610520-26-000023")
+
 CASH_TABLES = {
+    (4962, "0000004962-26-000080"): (  # AXP
+        "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {"da": (CASH_DA,)},
+    ),
+    BMO: (
+        "Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, {
+            "da": (BMO_PPE, BMO_OTHER, BMO_AMORTIZATION),
+            "da_ppe": (BMO_PPE,),
+            "depreciation_other_assets": (BMO_OTHER,),
+            "amortization": (BMO_AMORTIZATION,),
+        },
+    ),
+    (831001, "0000831001-26-000011"): (  # C
+        "CONSOLIDATED STATEMENT OF CASH FLOWS", "R9.htm", 1_000_000, {"da": (CASH_DA,)},
+    ),
+    CIBC: (
+        "Consolidated statement of cash flows", "R9.htm", 1_000_000, {
+            "da_with_impairment": ((IFRS_CASH_DA_AND_IMPAIRMENT, "Amortization and impairment"),),
+        },
+    ),
+    (1381197, "0001381197-26-000062"): (  # IBKR
+        "Condensed Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {
+            "da": (CASH_DA,),
+            "amortization_operating_rou": (
+                ("us-gaap:OperatingLeaseRightOfUseAssetAmortizationExpense", "Amortization of right-of-use assets"),
+            ),
+        },
+    ),
+    JPM: ("Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, {"da": (CASH_DA,)}),
+    SCHWAB: (
+        "Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, {
+            "da": (SCHWAB_DA, SCHWAB_AMORTIZATION),
+            "da_excluding_acquired_intangibles": (SCHWAB_DA,),
+            "amortization": (SCHWAB_AMORTIZATION,),
+        },
+    ),
+    TD: (
+        "Consolidated Statement of Cash Flows", "R7.htm", 1_000_000, {
+            "da": (TD_DEPRECIATION, TD_AMORTIZATION),
+            "depreciation": (TD_DEPRECIATION,),
+            "amortization": (TD_AMORTIZATION,),
+        },
+    ),
+    UBS: (
+        "Consolidated Statement of Cash Flows", "R9.htm", 1_000_000, {
+            "da_with_impairment": ((IFRS_CASH_DA_AND_IMPAIRMENT, "Depreciation, amortization and impairment of non-financial assets"),),
+        },
+    ),
+    (896159, "0000896159-26-000005"): (  # CB
+        "Consolidated Statements Of Cash Flows", "R8.htm", 1_000_000, {
+            "amortization": (("us-gaap:PresentValueOfFutureInsuranceProfitsAmortizationExpense1", "Amortization of purchased intangibles"),),
+        },
+    ),
+    (80661, "0000080661-26-000086"): (  # PGR
+        "Consolidated Statements of Cash Flows", "R7.htm", 1_000_000, {
+            "depreciation": (("us-gaap:Depreciation", "Depreciation"),),
+        },
+    ),
     ADOBE: (
         "Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, {
             "da_with_accretion": ((US_DA, "Depreciation, amortization and accretion"),),
@@ -504,6 +576,14 @@ NOTES = {
                                 "Note D.3 · Owned PP&E impairment net of reversals"),),
     },
     SOUTHERN: {"retirement_accretion": (RETIREMENT_ACCRETION,)},
+    JPM: {
+        "depreciation_leased_assets": (("us-gaap:OperatingLeasesIncomeStatementDepreciationExpenseOnPropertySubjectToOrHeldForLease",
+                                       "Noninterest expense note · Depreciation of assets under operating leases"),),
+    },
+    (1393818, "0001193125-26-082531"): {  # BX
+        "depreciation": (("us-gaap:Depreciation", "Note 10 · Furniture, equipment and leasehold improvement depreciation"),),
+        "amortization": ((US_AMORTIZATION, "Consolidated cash flow · Amortization of intangibles"),),
+    },
     SALESFORCE: {
         "da_ppe": ((US_DA, "Note 5 · Fixed-asset D&A, including finance leases (rounded)"),),
         "amortization_finance_rou": (FINANCE_LEASE_DA,),
@@ -584,6 +664,9 @@ NOTES = {
 }
 
 CHECKS = {
+    BMO: ("da", "-da_ppe", "-depreciation_other_assets", "-amortization"),
+    SCHWAB: ("da", "-da_excluding_acquired_intangibles", "-amortization"),
+    TD: ("da", "-depreciation", "-amortization"),
     NETFLIX: ("da_including_content", "-da", "-amortization_content"),
     UNILEVER: ("da_with_impairment", "-da", "-asset_impairment"),
     NOVO: ("da_with_impairment", "-da", "-asset_impairment"),
@@ -604,6 +687,8 @@ PDF_FIELDS = {
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
 GAPS = {
+    CIBC: "The filed amortization adjustment includes impairment of tangible, lease and intangible assets.",
+    UBS: "The filed cash-flow adjustment combines depreciation, amortization and non-financial asset impairment.",
     APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. Continuing asset-note amounts are required for the add-back.",
     AMAZON: "The cash-flow adjustment includes content and operating lease items. Separate PP&E and acquired intangible amounts are required for the add-back.",
     DUKE: "The cash-flow adjustment includes accretion and nuclear fuel amortization. The income statement and asset-retirement note show narrower amounts.",
@@ -821,7 +906,7 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
         parts["da"].append(component(*ROU, leases, meta))
 
     facts = separate_partial_da(statement, key)["facts"].copy()
-    if cik in {40545, 104169, VALERO[0]} and "da_with_accretion" in facts:
+    if cik in {4962, 19617, 40545, 104169, 831001, 1381197, VALERO[0]} and "da_with_accretion" in facts:
         old = facts["da_with_accretion"]
         if any((old["tag"], old["value"]) == (part["tag"], part["value"]) for part in parts["da"]):
             del facts["da_with_accretion"]
@@ -885,8 +970,7 @@ def valid_component(cik, report, field, part):
     tag = part["tag"]
     if field in table_fields(key):
         filename = CASH_TABLES[key][1] if key == (cik, report["accession"]) else None
-        return (source == ENDPOINT and table_belongs_to_filing(part.get("table_url"), report, filename) and
-                bool(re.fullmatch(r"[0-9a-f]{16}", part.get("table_sha256_16", ""))))
+        return valid_table_source(part, report, filename)
     if key == BUD and tag in {tag for tag, _ in BUD_PDF_LINES}:
         return source == bud_report_url(report)
     if tag == "disclosed:DepreciationAndAmortization" and key == AIRBNB:

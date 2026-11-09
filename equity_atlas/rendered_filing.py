@@ -5,6 +5,8 @@ import json
 import math
 import re
 
+from .sec_rendered import read_cash_flow
+
 ENDPOINT = "https://canlicapital.com/mcp/canli"
 
 
@@ -52,6 +54,16 @@ def table_belongs_to_filing(table_url, report, pinned_filename=None):
     return filename == pinned_filename if pinned_filename else bool(re.fullmatch(r"R[1-9]\d*\.htm", filename))
 
 
+def valid_table_source(part, report, pinned_filename=None):
+    url = part.get("table_url")
+    digest = part.get("table_sha256_16", "")
+    source = part["source"]
+    return (
+        table_belongs_to_filing(url, report, pinned_filename) and bool(re.fullmatch(r"[0-9a-f]{16}", digest)) and
+        (source == ENDPOINT or (source == url and part["sha256"][:16] == digest))
+    )
+
+
 def annual_table(cache, cik, report, statement, kind, title, pinned_filename=None, pinned_scale=None):
     if (statement["filing"], statement["end"], statement["period_kind"]) != (
             report["accession"], report["end"], "annual"):
@@ -69,9 +81,18 @@ def annual_table(cache, cik, report, statement, kind, title, pinned_filename=Non
             not table_belongs_to_filing(url, report, pinned_filename) or
             table["currency"] != statement["currency"] or table["columns"].count(year) != 1 or
             scale not in {1, 1_000, 1_000_000, 1_000_000_000} or
-            (pinned_scale is not None and scale != pinned_scale) or not re.fullmatch(r"[0-9a-f]{16}", digest)):
+            (pinned_scale is not None and scale != pinned_scale)):
         raise ValueError(f"Unverified annual {kind.replace('_', ' ')} table")
-    return table, table["columns"].index(year), receipt, {"table_url": url, "table_sha256_16": digest}
+    if re.fullmatch(r"[0-9a-f]{16}", digest):
+        return table, table["columns"].index(year), receipt, {"table_url": url, "table_sha256_16": digest}
+    if kind != "cash_flow":
+        raise ValueError("Missing rendered statement source checksum")
+    # Archived submissions can fill the connector's receipt before it records the statement.
+    raw, receipt = cache.get(url, 8760)
+    if receipt["url"] != url:
+        raise ValueError("Unexpected source for SEC-rendered cash-flow document")
+    table, column = read_cash_flow(raw, title, statement["currency"], statement["end"], scale)
+    return table, column, receipt, {"table_url": url, "table_sha256_16": receipt["sha256"][:16]}
 
 
 def amount(table, concept, column, label=None):

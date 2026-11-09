@@ -10,7 +10,7 @@ import re
 import time
 
 from .annual_exhibit import ADP, enrich_exhibit, supported as exhibit_supported
-from .capex import CAPEX_TAG, enrich_capex, supported as capex_supported
+from .capex import CAPEX_TAG, NET_PURCHASES, enrich_capex, supported as capex_supported
 from .depreciation import (
     TAG as DEPRECIATION_TAG, enrich_depreciation, gap_reason as depreciation_gap, profile_fields as depreciation_fields,
     rule_key as depreciation_rule_key, separate_partial_da,
@@ -407,7 +407,8 @@ def make_public(cache, csv_path, out, day, open_market=False):
                                      r["statement"]["filing"]==r["edgar"]["latest_annual"]["accession"]) for r in latest),
         "latest_annual_sec_workbook":sum(r["source"]==WORKBOOK_SOURCE for r in latest),
         "annual_cash_investment_profiled":sum(
-            (r["statement"] or {}).get("facts", {}).get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG} for r in sec_rows
+            NET_PURCHASES in facts or facts.get("capex", {}).get("tag") in {CAPEX_TAG, WORKBOOK_CAPEX_TAG, BHP_CAPEX_TAG}
+            for facts in ((r["statement"] or {}).get("facts", {}) for r in sec_rows)
         ),
         "annual_exhibits_profiled":sum(bool((r["statement"] or {}).get("annual_earnings_exhibit")) for r in sec_rows),
         "annual_note_profiled":sum(any(f["tag"] == NOTE_TAG for f in (r["statement"] or {}).get("facts", {}).values())
