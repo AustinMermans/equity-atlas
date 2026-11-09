@@ -1,5 +1,6 @@
 """Normalize annual depreciation and amortization from reviewed filings."""
 
+from datetime import date
 import re
 
 from .capex import PDFS
@@ -7,7 +8,7 @@ from .catalog import SUCCESSIONS
 from .facts import annual_rule_key, exact_sec_amount, recurring_annual_rules
 from .fetch import SEC
 from .issuer_20f import column, linked_report, pdf_pages
-from .rendered_filing import amount, annual_table, scaled, valid_table_source
+from .rendered_filing import amount, annual_table, filing_tables, scaled, table_belongs_to_filing, valid_table_source
 
 TAG = "derived:FiledDepreciationAndAmortization"
 ADOBE = (796343, "0000796343-26-000003")
@@ -665,6 +666,7 @@ NOTES = {
 
 CHECKS = {
     BMO: ("da", "-da_ppe", "-depreciation_other_assets", "-amortization"),
+    CIBC: ("da_with_impairment", "-ppe_da_with_impairment", "-amortization_with_impairment"),
     SCHWAB: ("da", "-da_excluding_acquired_intangibles", "-amortization"),
     TD: ("da", "-depreciation", "-amortization"),
     NETFLIX: ("da_including_content", "-da", "-amortization_content"),
@@ -686,9 +688,38 @@ PDF_FIELDS = {
     BUD: {"da": BUD_PDF_LINES + (ROU,)},
     AIRBNB: {"da": (("disclosed:DepreciationAndAmortization", "p. 38 · Adjusted EBITDA reconciliation · Depreciation and amortization"),)},
 }
+CIBC_ASSET_LINES = {
+    "ppe_da_with_impairment": (("disclosed:PPEAndLeaseDepreciationWithImpairment",
+                               "Property and equipment note · Depreciation and impairment"),),
+    "amortization_with_impairment": (("disclosed:IntangibleAmortizationWithImpairment",
+                                     "Software and other intangible assets note · Amortization and impairment"),),
+}
+UBS_ASSET_NOTES = {
+    "Property, equipment and software (Detail)": (
+        "Accumulated depreciation Depreciation Impairment owned properties leased properties software",
+        "R113.htm", "Accumulated depreciation", {
+            "depreciation_ppe_and_software": ("Depreciation", "disclosed:PropertyEquipmentAndSoftwareDepreciation",
+                                             "Property, equipment and software note · Depreciation including leased property"),
+            "impairment_ppe_and_software": ("Impairment", "disclosed:PropertyEquipmentAndSoftwareImpairment",
+                                          "Property, equipment and software note · Impairment"),
+        },
+    ),
+    "Goodwill and intangible assets (Detail 2)": (
+        "Accumulated amortization and impairment Amortization reversal of impairment goodwill",
+        "R116.htm", "Accumulated amortization and impairment", {
+            "amortization": ("Amortization", "disclosed:IntangibleAmortization",
+                             "Goodwill and intangible assets note · Amortization"),
+        },
+    ),
+}
+ASSET_FIELDS = {
+    CIBC: CIBC_ASSET_LINES,
+    UBS: {field: ((tag, label),) for _, _, _, fields in UBS_ASSET_NOTES.values()
+          for field, (_, tag, label) in fields.items()},
+}
 GAPS = {
-    CIBC: "The filed amortization adjustment includes impairment of tangible, lease and intangible assets.",
-    UBS: "The filed cash-flow adjustment combines depreciation, amortization and non-financial asset impairment.",
+    CIBC: "Property and equipment and intangible asset note totals reconcile to the cash-flow adjustment. Both include impairment.",
+    UBS: "The asset notes report depreciation, amortization and impairment separately. The note amounts do not fully reconcile to the cash-flow adjustment.",
     APPLOVIN: "The cash-flow adjustment includes write-offs and the discontinued Apps business. Continuing asset-note amounts are required for the add-back.",
     AMAZON: "The cash-flow adjustment includes content and operating lease items. Separate PP&E and acquired intangible amounts are required for the add-back.",
     DUKE: "The cash-flow adjustment includes accretion and nuclear fuel amortization. The income statement and asset-retirement note show narrower amounts.",
@@ -744,7 +775,7 @@ def table_fields(key):
 
 def profile_fields(cik, report):
     key = rule_key(cik, report)
-    return {**table_fields(key), **NOTES.get(key, {}), **PDF_FIELDS.get(key, {})}
+    return {**table_fields(key), **NOTES.get(key, {}), **PDF_FIELDS.get(key, {}), **ASSET_FIELDS.get(key, {})}
 
 
 def gap_reason(cik, report):
@@ -868,6 +899,72 @@ def novartis_amount(cache, obj, report, statement):
     return value, receipt
 
 
+def cibc_asset_report_url(report):
+    year = report["end"][:4]
+    return ("https://www.cibc.com/content/dam/cibc-public-assets/about-cibc/investor-relations/pdfs/"
+            f"quarterly-results/{year}/consolidated-financials-{year}-en.pdf")
+
+
+def cibc_asset_amounts(cache, report, statement, adjustment, component):
+    url = cibc_asset_report_url(report)
+    raw, receipt = cache.get(url, 8760)
+    pages = pdf_pages(raw)
+    year = report["end"][:4]
+    cash, = [page for page in pages if re.search(r"^ *Consolidated statement of cash flows *$", page, re.M)]
+    if (receipt["url"] != url or statement["currency"] != "CAD" or not report["end"].endswith("-10-31") or
+            not re.search(rf"Millions of Canadian dollars, for the year ended October 31 +{year} +{int(year) - 1}\b", cash) or
+            scaled(column(cash, "Net cash flows provided by (used in) operating activities", 2), 1_000_000) !=
+            statement["facts"]["cfo"]["value"] or
+            scaled(column(cash, "Amortization and impairment (1)", 2), 1_000_000) != adjustment):
+        raise ValueError("CIBC issuer financial statements disagree with EDGAR cash flow")
+
+    layouts = {
+        "ppe_da_with_impairment": ("Property and equipment", "depreciation", "Depreciation and impairment", 6),
+        "amortization_with_impairment": ("Software and other intangible assets", "amortization",
+                                        "Amortization and impairment", 5),
+    }
+    result = {}
+    for field, (title, accumulated, row, count) in layouts.items():
+        page, = [page for page in pages if title in page and
+                 re.search(rf"^ *{year} +Accumulated {accumulated} *$", page, re.M)
+                 and "$ millions, as at or for the year ended October 31" in page]
+        section = re.split(rf"^ *{year} +Accumulated {accumulated} *$", page, maxsplit=1, flags=re.M)[1]
+        current, = re.findall(rf"^ *({row}(?: \(\d+\))?) {{2,}}", section, re.M)
+        amounts = [scaled(column(section, current, count, column_index=i), 1_000_000) for i in range(count)]
+        if sum(amounts[:-1]) != amounts[-1]:
+            raise ValueError(f"CIBC asset class amounts disagree with {row} total")
+        result[field] = [component(*CIBC_ASSET_LINES[field][0], amounts[-1], receipt)]
+    return result
+
+
+def ubs_asset_amounts(cache, report, statement, component, pinned):
+    end = date.fromisoformat(report["end"])
+    period = f"12 Months Ended Dec. {end.day}, {end.year}"
+    if end.month != 12 or statement["currency"] != "USD":
+        raise ValueError("Unexpected UBS annual reporting period or currency")
+    result = {}
+    for title, (query, filename, section, fields) in UBS_ASSET_NOTES.items():
+        tables, receipts, receipt = filing_tables(cache, UBS[0], report, query)
+        table, = [t for t in tables if t["source"] == "xbrl report" and t["title"] == title
+                  and t["units"] == "USD ($) $ in Millions" and t["columns"].count(period) == 1
+                  and table_belongs_to_filing(t.get("url"), report, filename if pinned else None)]
+        url = table["url"]
+        evidence = {"table_url": url, "table_sha256_16": receipts.get(url, "")}
+        if not valid_table_source({**evidence, "source": receipt["url"], "sha256": receipt["sha256"]}, report):
+            raise ValueError(f"Missing SEC source checksum for {title}")
+        index = table["columns"].index(period)
+        rows = table["rows"]
+        start, = [i for i, row in enumerate(rows) if row[0] == section and all(v is None for v in row[1:])]
+        # Stop at the next dimensional member heading.
+        stop = next((i for i in range(start + 1, len(rows)) if all(v is None for v in rows[i][1:])), len(rows))
+        for field, (line, tag, label) in fields.items():
+            value, = [r[index] for r in rows[start + 1:stop] if r[0] == line]
+            if type(value) not in (int, float):
+                raise ValueError(f"Missing consolidated UBS asset note amount for {line}")
+            result[field] = [component(tag, label, scaled(value, 1_000_000), receipt, **evidence)]
+    return result
+
+
 def enrich_depreciation(cache, obj, meta, cik, report, statement):
     key = rule_key(cik, report)
     if ((statement["filing"], statement["end"], statement["period_kind"]) !=
@@ -893,6 +990,11 @@ def enrich_depreciation(cache, obj, meta, cik, report, statement):
             else:
                 value, receipt = exact_sec_amount(obj, statement, report, tag.removeprefix("-")), meta
             parts[field].append(component(tag, label, value, receipt))
+
+    if key == CIBC:
+        parts.update(cibc_asset_amounts(cache, report, statement, parts["da_with_impairment"][0]["value"], component))
+    if key == UBS:
+        parts.update(ubs_asset_amounts(cache, report, statement, component, key == (cik, report["accession"])))
 
     if key == AIRBNB:
         value, receipt = airbnb_amount(cache, statement)
@@ -971,6 +1073,11 @@ def valid_component(cik, report, field, part):
     if field in table_fields(key):
         filename = CASH_TABLES[key][1] if key == (cik, report["accession"]) else None
         return valid_table_source(part, report, filename)
+    if key == CIBC and field in CIBC_ASSET_LINES:
+        return source == cibc_asset_report_url(report)
+    if key == UBS and field in ASSET_FIELDS[UBS]:
+        filename, = [filename for _, filename, _, fields in UBS_ASSET_NOTES.values() if field in fields]
+        return valid_table_source(part, report, filename if key == (cik, report["accession"]) else None)
     if key == BUD and tag in {tag for tag, _ in BUD_PDF_LINES}:
         return source == bud_report_url(report)
     if tag == "disclosed:DepreciationAndAmortization" and key == AIRBNB:

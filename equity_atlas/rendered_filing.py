@@ -40,6 +40,27 @@ def parse_result(raw):
     return result
 
 
+def filing_tables(cache, cik, report, query, document=None):
+    args = {"company": f"{cik:010d}", "accession": report["accession"], "form": report["form"],
+            "find": query, "max_tables": 8}
+    if document:
+        args["document"] = document
+    request = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "run_tool", "arguments": {"name": "filing_tables", "arguments": args}},
+    }, sort_keys=True).encode()
+    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
+    result = parse_result(raw)
+    payload = result["structuredContent"]
+    entry, = payload["results"]
+    if (receipt["url"] != ENDPOINT or payload["company"]["cik"] != cik or
+            tuple(entry["filing"][key] for key in ("accession", "form", "filed", "period")) !=
+            tuple(report[key] for key in ("accession", "form", "filed", "end"))):
+        raise ValueError("Table response does not match the selected SEC filing")
+    sources = result["_meta"]["canlicapital.com/receipt"]["sources"]
+    return entry["tables"], {source["url"]: source["sha256_16"] for source in sources}, receipt
+
+
 def decode_response(raw, receipt, report, cik, period):
     if receipt["url"] != ENDPOINT:
         raise ValueError("Unexpected rendered filing response source")

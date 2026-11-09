@@ -2,12 +2,11 @@
 
 from dataclasses import dataclass
 from datetime import date
-import json
 import re
 
 from .facts import exact_sec_amount
 from .fetch import SEC
-from .rendered_filing import ENDPOINT, parse_result, scaled
+from .rendered_filing import ENDPOINT, filing_tables, scaled
 
 TAG = "disclosed:ReconciledAnnualNote"
 OTHER_NONOPERATING = "us-gaap:OtherNonoperatingIncomeExpense"
@@ -159,32 +158,15 @@ def reconciles(note, total, amounts, anchor):
 
 
 def note_components(cache, cik, report, note, anchor):
-    args = {"company": f"{cik:010d}", "accession": report["accession"], "form": report["form"],
-            "find": note.query, "max_tables": 8}
-    if note.document:
-        args["document"] = note.document
-    request = json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "run_tool", "arguments": {"name": "filing_tables", "arguments": args}},
-    }, sort_keys=True).encode()
-    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
-    result = parse_result(raw)
-    payload = result["structuredContent"]
-    entry, = payload["results"]
-    if (receipt["url"] != ENDPOINT or payload["company"]["cik"] != cik or
-            tuple(entry["filing"][key] for key in ("accession", "form", "filed", "period")) !=
-            tuple(report[key] for key in ("accession", "form", "filed", "end"))):
-        raise ValueError("Note response does not match the annual SEC filing")
+    tables, receipts, receipt = filing_tables(cache, cik, report, note.query, note.document)
     url = note_url(report, note)
-    receipts = {entry["url"]: entry["sha256_16"]
-                for entry in result["_meta"]["canlicapital.com/receipt"]["sources"]}
     digest = receipts.get(url, "")
     if not re.fullmatch(r"[0-9a-f]{16}", digest):
         raise ValueError("Missing note document checksum")
     end = date.fromisoformat(report["end"])
     year = note.date_format.format(month=end.strftime("%B"), day=end.day, year=end.year)
     matches = []
-    for table in entry["tables"]:
+    for table in tables:
         if (table["source"] != "document table" or table.get("url") != url or
                 table["columns"].count(year) != 1 or
                 (note.title_phrase and note.title_phrase not in (table.get("title") or "").lower())):
