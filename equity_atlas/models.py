@@ -180,7 +180,19 @@ def net_debt_cash(statement):
     # Cash investment already includes some vendor-financed asset payments.
     if v.get("financed_asset_principal_paid", 0) != v.get("capex_financing_payment", 0):
         return None
-    return v["debt_net"] - v.get("lease_principal_paid", 0) - v.get("debt_issuance_cost_paid", 0)
+    lease = v.get("lease_principal_paid")
+    note_lease = v.get("finance_lease_principal_note")
+    if lease is not None and note_lease is not None and lease != note_lease:
+        return None
+    if lease is None:
+        lease = note_lease
+    if lease is None and any(v.get(field, 0) > 0 for field in
+                             ("finance_lease_liability", "finance_lease_liability_current",
+                              "finance_lease_liability_noncurrent")):
+        return None
+    if lease is not None and lease < 0:
+        return None
+    return v["debt_net"] - (lease or 0) - v.get("debt_issuance_cost_paid", 0)
 
 
 def observed(case):

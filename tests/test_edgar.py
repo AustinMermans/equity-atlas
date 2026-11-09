@@ -240,6 +240,13 @@ class EdgarTests(unittest.TestCase):
                  "lease_principal_paid": {"value": 20}, "debt_issuance_cost_paid": {"value": 5},
                  "financed_asset_principal_paid": {"value": 10}, "capex_financing_payment": {"value": 10}}
         self.assertEqual(net_debt_cash({"facts": facts}), 75)
+        note_only = {key: fact for key, fact in facts.items() if key != "lease_principal_paid"}
+        note_only["finance_lease_liability"] = {"value": 50}
+        self.assertIsNone(net_debt_cash({"facts": note_only}))
+        note_only["finance_lease_principal_note"] = {"value": 20}
+        self.assertEqual(net_debt_cash({"facts": note_only}), 75)
+        self.assertEqual(net_debt_cash({"facts": {**note_only, **facts}}), 75)
+        self.assertIsNone(net_debt_cash({"facts": {**note_only, **facts, "lease_principal_paid": {"value": 19}}}))
         self.assertIsNone(net_debt_cash({"facts": facts, "borrowing_cash_pending": ["Mixed"]}))
         self.assertIsNone(net_debt_cash({"facts": {**facts, "capex_financing_payment": {"value": 0}}}))
         self.assertIsNone(net_debt_cash({"facts": {"short_borrow": {"value": 0}, "lt_issued": {"value": 30},

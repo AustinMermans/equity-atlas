@@ -624,8 +624,9 @@ for symbol, (currency, values) in CASH_DISTRIBUTIONS.items():
 
 BORROWING_CASH_AMOUNTS = {
     "AAPL": ("USD", {"debt_net": -18_307_000_000}),
-    "MSFT": ("USD", {"debt_net": -3_000_000_000}),
-    "COST": ("USD", {"debt_net_identified": 403_000_000}),
+    "MSFT": ("USD", {"debt_net": -3_000_000_000, "finance_lease_principal_note": 3_101_000_000,
+                     "finance_lease_liability": 66_594_000_000}),
+    "COST": ("USD", {"debt_net_identified": 403_000_000, "finance_lease_principal_note": 89_000_000}),
     "AMZN": ("USD", {"debt_net_identified": 10_652_000_000, "lease_principal_paid": 1_557_000_000}),
     "AVGO": ("USD", {"debt_net": -2_812_000_000}),
     "META": ("USD", {"debt_net": 29_906_000_000, "lease_principal_paid": 2_524_000_000}),

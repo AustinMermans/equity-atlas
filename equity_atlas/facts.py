@@ -68,6 +68,10 @@ TAGS = {
     "buybacks": "PaymentsForRepurchaseOfCommonStock PaymentsToAcquireOrRedeemEntitysShares",
     "issuance": "ProceedsFromStockPlans ProceedsFromIssuanceOfCommonStock ProceedsFromIssuingShares",
     "debt_net_tagged": "ProceedsFromRepaymentsOfDebt",
+    "finance_lease_principal_note": "FinanceLeasePrincipalPayments",
+    "finance_lease_liability": "FinanceLeaseLiability",
+    "finance_lease_liability_current": "FinanceLeaseLiabilityCurrent",
+    "finance_lease_liability_noncurrent": "FinanceLeaseLiabilityNoncurrent",
     "da": "DepreciationDepletionAndAmortization DepreciationAndAmortization DepreciationAndAmortisationExpense",
     "da_with_accretion": "DepreciationAmortizationAndAccretionNet",
     "depreciation": "Depreciation DepreciationDepletionAndAmortizationPropertyPlantAndEquipment",
@@ -75,7 +79,8 @@ TAGS = {
     "oci": "OtherComprehensiveIncomeLossNetOfTax OtherComprehensiveIncomeAttributableToOwnersOfParent",
 }
 STOCK = {"assets","liabilities","book","total_equity","preferred","minority","cash","st_investments","debt","debt_current","debt_noncurrent","short_borrow","debt_total","ar","inventory","ap","common_book","preferred_liquidation","shares_outstanding","debt_current_total","cash_due_from_banks","interest_bearing_deposits_at_banks","customer_deposits","loans_net"}
-STOCK.update({"temporary_equity_total","temporary_equity_parent","redeemable_nci","redeemable_nci_redemption",
+STOCK.update({"finance_lease_liability", "finance_lease_liability_current", "finance_lease_liability_noncurrent",
+              "temporary_equity_total","temporary_equity_parent","redeemable_nci","redeemable_nci_redemption",
               "redeemable_nci_cips","redeemable_nci_subco","hybrid_equity","minority_consolidated_entities","minority_holdings"})
 ANNUAL = {"10-K","10-K/A","20-F","20-F/A","40-F","40-F/A","10-KT"}
 INTERIM = {"10-Q","10-Q/A","10-QT","10-QT/A"}
