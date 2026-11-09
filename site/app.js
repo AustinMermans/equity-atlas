@@ -2,13 +2,14 @@
 const $=id=>document.getElementById(id);
 const money=new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:2});
 const n2=new Intl.NumberFormat('en',{maximumFractionDigits:2});
+const reportedAmount=new Intl.NumberFormat('en',{maximumFractionDigits:10});
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeUrl=x=>typeof x==='string'&&/^https:\/\//i.test(x)?esc(x):'#';
 const pct=x=>Number.isFinite(x)?(x>0?'+':'')+n2.format(100*x)+'%':'—';
 const usd=x=>Number.isFinite(x)?(x<0?'−$':'$')+money.format(Math.abs(x)):'—';
 const label=x=>({reit:'REIT',holdco:'Holding company',bank:'Bank / lender',broker:'Broker',insurer:'Insurance',operating:'Operating company',cyclical:'Cyclical',commodity:'Commodity',utility:'Utility',unknown:'Unclassified'}[x]||x);
 const best=r=>r.models?.decisions?.find(x=>x.method===r.models.selected);
-const fieldNames={sales:'Revenue',net:'Earnings used by Atlas',net_common:'Earnings available to common',net_parent:'Net income attributable to parent',net_consolidated:'Consolidated net income',common_book:'Common shareholders’ equity',preferred:'Preferred carrying value',preferred_liquidation:'Preferred liquidation preference',contract_sales:'Contract revenue',div_total:'Total cash dividends paid',div_common_declared:'Common cash dividends declared',da:'Depreciation and amortization',ebit:'Operating profit',book:'Parent equity',cash:'Cash and equivalents',cfo:'Operating cash flow',capex:'Cash capital investment',div:'Cash dividends',assets:'Total assets',liabilities:'Total liabilities'};
+const fieldNames={sales:'Revenue',net:'Earnings used by Atlas',net_common:'Earnings available to common',net_eps_basic:'Income allocated to basic EPS',net_eps_diluted:'Income allocated to diluted EPS',cfo_continuing:'Operating cash flow from continuing operations',net_discontinued:'Net income from discontinued operations',net_nci:'Net income attributable to noncontrolling interests',temporary_equity_total:'Total temporary equity carrying value',temporary_equity_parent:'Parent temporary equity carrying value',redeemable_nci:'Redeemable noncontrolling interests carrying value',redeemable_nci_redemption:'Redeemable noncontrolling interests redemption value',net_parent:'Net income attributable to parent',net_consolidated:'Consolidated net income',common_book:'Common shareholders’ equity',preferred:'Preferred carrying value',preferred_liquidation:'Preferred liquidation preference',contract_sales:'Contract revenue',div_total:'Total cash dividends paid',div_common_declared:'Common cash dividends declared',da:'Depreciation and amortization',ebit:'Operating profit',book:'Parent equity',cash:'Cash and equivalents',cfo:'Operating cash flow',capex:'Cash capital investment',div:'Cash dividends',assets:'Total assets',liabilities:'Total liabilities'};
 const field=x=>fieldNames[x]||x.replaceAll('_',' ');
 let snapshot=null,page=0,visible=[];
 const size=25;
@@ -66,7 +67,7 @@ function render() {
 }
 function detail(r) {
  const st=r.statement,m=best(r),cycle=r.cycle||{};
- const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+n2.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+(['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':period.route==='issuer_inline'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+(['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':['issuer_inline','issuer_10q'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
  const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
  const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
  const q=r.market;
@@ -79,6 +80,8 @@ function detail(r) {
  const percentInputs=new Set(['re','g','roe','wacc','payout','terminal_roic','terminal_roe','tax','capex_sales','da_sales','nwc_sales_proxy','growth_start','ebit_margin','target_margin','fcfe_sales','market_implied_dividend_growth','market_implied_terminal_ebit_margin','market_implied_roe']);
  const dl=obj=>'<dl class="fields">'+Object.entries(obj).map(([k,v])=>'<dt>'+esc(field(k))+'</dt><dd>'+esc(Array.isArray(v)?v.map(x=>typeof x==='number'?n2.format(x):x).join(', '):typeof v==='number'?(percentInputs.has(k)?pct(v):n2.format(v)):v)+'</dd>').join('')+'</dl>';
  const sources=factRows(st);
+ const balance=r.balance_check;
+ const reconciliation=balance&&(balance.temporary_equity_fields.length||!balance.reconciled)?'<p>Balance sheet residual after disclosed temporary equity · '+esc(st.currency)+' '+reportedAmount.format(balance.unexplained_residual)+'</p>':'';
  const margins=(r.history||[]).flatMap(h=>h.facts.sales?.value>0&&Number.isFinite(h.facts.ebit?.value)?[[h.end.slice(0,4),h.facts.ebit.value/h.facts.sales.value]]:[]);
  const max=Math.max(.1,...margins.map(x=>Math.abs(x[1])));
  const chart=margins.length>=2?'<h3>Reported operating margin</h3><div class="spark" aria-label="Fiscal-year operating margins">'+margins.map(([y,v])=>'<div class="'+(v<0?'negative':'')+'"><span>'+pct(v)+'</span><b style="height:'+Math.max(2,Math.abs(v)*70/max)+'px"></b><span>'+esc(y)+'</span></div>').join('')+'</div>':'';
@@ -89,7 +92,7 @@ function detail(r) {
    marketDetail+(m?'<div class="notice">Lead model: '+esc(m.label)+' · '+usd(m.equity_usd)+' · '+pct(m.gap)+' vs. market cap</div>':'')+
    (ratios?'<h3>Observed multiples</h3><dl class="fields">'+ratios+'</dl>':'')+chart+
    (cycle.mid_margin!==undefined?'<p>Cycle: '+esc(cycle.phase)+' · current '+pct(cycle.actual_margin)+' vs. historical median '+pct(cycle.mid_margin)+' · '+esc(cycle.window.join(' to '))+'</p>':'')+
-   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
+   decisions+'<h3>Annual filing evidence</h3>'+audit+lineage+amendments+reconciliation+(sources?'<p>Fiscal year ended '+esc(st.end)+' · '+esc(r.accounting)+' · '+esc(r.source)+'</p>'+factTable(sources):'<p>No normalized annual statement.</p>')+
    (interim?'<h3>Latest SEC interim filing</h3>'+interim:'')+
    ((r.issues||[]).length?'<h3>Data gaps</h3><ul>'+r.issues.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'');
  $('detail').showModal();

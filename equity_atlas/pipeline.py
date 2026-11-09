@@ -10,9 +10,10 @@ import re
 import time
 
 from .catalog import CIKS, LEIS, SUCCESSIONS, cik_on, classify, esef_list, sec_meta
-from .facts import ANNUAL, INTERIM, STOCK, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
+from .facts import ANNUAL, INTERIM, STOCK, balance_check, from_sec, from_esef, latest_filing, qualifies, sec_filing_index
 from .edgar import amendment_reviews, annual_from_instance, instance_url, periods_from_instance
 from .inline import inline_url, periods_from_inline
+from .issuer_10q import ROUTE as QUARTER_PDF_ROUTE, periods_from_10q, quarter_copy_url
 from .issuer_20f import COPY_SOURCES, MIRRORS, read_mirror
 from .fetch import Cache, ESEF, RANK, SEC, atomic, dump, fx_snapshot, parallel, ticker_map
 from .models import VERSION, fit, prepare
@@ -72,18 +73,22 @@ def interim_statements(cache, obj, meta, day, cik, filings, annual, interim, iss
                     routes[kind]="filing_instance"
         except (OSError,ValueError,KeyError,TypeError) as exc:
             issues.append(f"SEC interim archive for {interim['end']}: {exc}")
-    pending=tuple(kind for kind in missing if kind not in results)
-    mirror=inline_url(cik,interim)
-    if pending and mirror:
+    for route, url, parse in (
+        ("issuer_inline", inline_url(cik,interim), periods_from_inline),
+        (QUARTER_PDF_ROUTE, quarter_copy_url(cik,interim), periods_from_10q),
+    ):
+        pending=tuple(kind for kind in missing if kind not in results)
+        if not pending or not url:
+            continue
         try:
-            raw, receipt=cache.get(mirror,8760)
-            parsed=periods_from_inline(raw,receipt,interim,cik,pending)
+            raw, receipt=cache.get(url,8760)
+            parsed=parse(raw,receipt,interim,cik,pending)
             for kind in pending:
                 if parsed[kind]:
                     results[kind]=parsed[kind][-1]
-                    routes[kind]="issuer_inline"
-        except (OSError,ValueError,KeyError,TypeError) as exc:
-            issues.append(f"Issuer Inline XBRL for {interim['end']}: {exc}")
+                    routes[kind]=route
+        except (OSError,ValueError,KeyError,TypeError,IndexError) as exc:
+            issues.append(f"Issuer filing copy for {interim['end']} ({route}): {exc}")
     for kind in missing:
         if kind not in results:
             routes[kind]="unavailable"
@@ -268,6 +273,7 @@ def make_public(cache, csv_path, out, day, open_market=False):
         row={"id":f"sec:{cik:010d}","name":entry["name"],
              "symbol":symbol,"country":entry.get("country",""),"kind":k,"peer_group":g,
              "classification":why,"source":selected_source if s else None,"statement":s,
+             "balance_check":balance_check(s) if s else None,
              "history":[{"end":x["end"],"currency":x["currency"],
                          "facts":{m:{"value":x["facts"][m]["value"]} for m in ("sales","ebit") if m in x["facts"]}}
                         for x in h],

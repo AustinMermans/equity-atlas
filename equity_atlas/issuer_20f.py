@@ -33,13 +33,13 @@ def statement_page(pages, title, footer, markers):
     return matches[0]
 
 
-def column(table, label, count, occurrence=None):
+def column(table, label, count, occurrence=None, column_index=0):
     # The last columns are the reported fiscal years. A leading number may
     # instead be a note reference. Dotted leaders occur in the SMFG layout.
     lines = re.findall(rf"^ *{re.escape(label)}(?: {{2,}}| \. \.)(.*)$", table, re.M)
     if len(lines) != (2 if occurrence is not None else 1):
         raise ValueError(f"Unexpected number of rows for {label}")
-    line = lines[occurrence or 0].replace("¥", " ")
+    line = lines[occurrence or 0].replace("¥", " ").replace("$", " ")
     cells = re.sub(r"\. +(?=\.|\s)", " ", line).split()
     # The row matcher has already consumed the first two leader dots.
     cells = [cell for cell in cells if cell != "."]
@@ -47,10 +47,23 @@ def column(table, label, count, occurrence=None):
         cells = cells[1:]
     if len(cells) != count or not all(CELL.fullmatch(cell) for cell in cells):
         raise ValueError(f"Unexpected number of fiscal columns for {label}")
-    value = cells[0].replace(",", "")
+    value = cells[column_index].replace(",", "")
     if value in {"−", "–", "—", "-"}:
         return 0
     return float(value.replace("(", "-").replace(")", ""))
+
+
+def pdf_pages(blob):
+    if not blob.startswith(b"%PDF-") or len(blob) > 32_000_000:
+        raise ValueError("Unexpected PDF document type or size")
+    try:
+        output = subprocess.run(
+            ["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"], input=blob,
+            capture_output=True, check=True, timeout=25,
+        ).stdout
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise ValueError("Cannot extract text from public filing PDF") from exc
+    return output.decode("utf-8").split("\f")
 
 
 def read_mirror(blob, receipt, report, cik):
@@ -58,16 +71,7 @@ def read_mirror(blob, receipt, report, cik):
     route = "regulator_20f" if url == FCA_BHP else "issuer_20f"
     if report["end"] != end or report["form"] != "20-F" or receipt["url"] != url:
         raise ValueError("Public copy does not match SEC metadata")
-    if not blob.startswith(b"%PDF-") or len(blob) > 32_000_000:
-        raise ValueError("Unexpected 20-F document type or size")
-    try:
-        output = subprocess.run(
-            ["pdftotext", "-layout", "-enc", "UTF-8", "-", "-"], input=blob,
-            capture_output=True, check=True, timeout=25,
-        ).stdout
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise ValueError("Cannot extract text from public 20-F copy") from exc
-    pages = output.decode("utf-8").split("\f")
+    pages = pdf_pages(blob)
     day = date.fromisoformat(end)
     start = str(day.replace(year=day.year - 1) + timedelta(days=1))
     facts = {}

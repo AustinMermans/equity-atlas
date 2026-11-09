@@ -8,7 +8,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from equity_atlas.catalog import SUCCESSIONS
 from equity_atlas.inline import inline_url
+from equity_atlas.facts import balance_check
 from equity_atlas.edgar import REVIEWED_AMENDMENTS
+from equity_atlas.issuer_10q import ROUTE as QUARTER_PDF_ROUTE, quarter_copy_url
 from equity_atlas.issuer_20f import COPY_SOURCES, FCA_BHP, MIRRORS
 from equity_atlas.market import CBC_FX, OPEN_LICENSE, TWSE_CLOSE, TWSE_ISSUERS
 
@@ -35,13 +37,15 @@ if open_market:
 def verify_period(period, row):
     mirror = None
     route = period.get("route")
-    inline_copy = None
-    if route == "issuer_inline":
+    interim_copy = None
+    if route in {"issuer_inline", QUARTER_PDF_ROUTE}:
         report = row["edgar"]["latest_interim"]
         cik = int(row["id"].removeprefix("sec:"))
-        inline_copy = inline_url(cik,report)
-        if not inline_copy or period["report"] != report or row["edgar"]["interim_routes"].get(period["period_kind"]) != route:
-            raise SystemExit("Inline copy does not match the expected SEC filing")
+        resolve = inline_url if route == "issuer_inline" else quarter_copy_url
+        interim_copy = resolve(cik,report)
+        if (not interim_copy or period["report"] != report or
+                row["edgar"]["interim_routes"].get(period["period_kind"]) != route):
+            raise SystemExit("Public copy does not match the expected SEC interim filing")
     if route in COPY_SOURCES:
         report = row["edgar"]["latest_annual"]
         cik = int(row["id"].removeprefix("sec:"))
@@ -61,10 +65,11 @@ def verify_period(period, row):
             official=(source==mirror[2] and url==report["url"] and fact["filed"]==report["filed"] and
                       fact["form"]==report["form"] and fact["tag"].startswith(route + ":") and
                       len(fact["sha256"])==64)
-        if inline_copy:
-            official = (source == inline_copy and url == report["url"] and fact["accession"] == report["accession"]
+        if interim_copy:
+            locator = fact.get("context_id") if route == "issuer_inline" else fact.get("locator")
+            official = (source == interim_copy and url == report["url"] and fact["accession"] == report["accession"]
                         and fact["filed"] == report["filed"] and fact["form"] == report["form"]
-                        and bool(fact.get("context_id")) and len(fact["sha256"]) == 64)
+                        and bool(locator) and len(fact["sha256"]) == 64)
         if not official or not url.startswith("https://www.sec.gov/Archives/edgar/"):
             raise SystemExit("Unverified SEC fact source")
         if not date.fromisoformat(period["end"])<=date.fromisoformat(fact["filed"])<=asof:
@@ -92,6 +97,8 @@ for row in rows:
         raise SystemExit("Valuation without an approved market input")
     if row["statement"]:
         verify_period(row["statement"], row)
+        if "balance_check" in row and row["balance_check"] != balance_check(row["statement"]):
+            raise SystemExit("Balance-sheet reconciliation does not match published facts")
         fresh += 0 <= (asof-date.fromisoformat(row["statement"]["end"])).days <= 465
     audit = row.get("edgar", {})
     succession = audit.get("succession")

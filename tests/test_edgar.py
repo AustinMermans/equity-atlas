@@ -3,7 +3,7 @@ import unittest
 
 from equity_atlas.catalog import cik_on
 from equity_atlas.edgar import amendment_reviews, annual_from_instance, periods_from_instance
-from equity_atlas.facts import from_sec, precise_duplicates
+from equity_atlas.facts import balance_check, from_sec, precise_duplicates
 from equity_atlas.inline import periods_from_inline
 from equity_atlas.issuer_20f import column, statement_page
 from equity_atlas.market import SHARES, taiwan_issuers
@@ -171,6 +171,26 @@ class EdgarTests(unittest.TestCase):
         self.assertEqual(cik_on(2115436, date(2026, 6, 30)), 34088)
         self.assertEqual(cik_on(34088, date(2026, 7, 1)), 2115436)
         self.assertEqual(cik_on(1045609, DAY), 1045609)
+
+    def test_temporary_equity_reconciliation_uses_carrying_scope(self):
+        def statement(**values):
+            return {"facts": {k: {"value": v} for k, v in values.items()}}
+
+        base = dict(assets=120, liabilities=60, total_equity=50)
+        fields = dict(temporary_equity_parent=7, redeemable_nci=3, redeemable_nci_redemption=9)
+        split = balance_check(statement(**base, **fields))
+        self.assertTrue(split["reconciled"])
+        self.assertEqual(split["temporary_equity_fields"], ["temporary_equity_parent", "redeemable_nci"])
+        total = balance_check(statement(**base, **fields, temporary_equity_total=10))
+        self.assertEqual(total["temporary_equity_fields"], ["temporary_equity_total"])
+        only_redemption = balance_check(statement(**base, redeemable_nci_redemption=10))
+        self.assertFalse(only_redemption["reconciled"])
+        self.assertEqual(only_redemption["unexplained_residual"], 10)
+
+    def test_four_column_filing_selects_current_quarter_and_current_ytd(self):
+        line = "Net income    $ 4,892   $ 3,478    $ 15,865   $ 11,005"
+        self.assertEqual(column(line, "Net income", 4), 4892)
+        self.assertEqual(column(line, "Net income", 4, column_index=2), 15865)
 
     def test_issuer_copy_uses_current_column_after_optional_note(self):
         self.assertEqual(column("Net profit . . . .    ¥(2,500)    ¥ 1,999", "Net profit", 2), -2500)
