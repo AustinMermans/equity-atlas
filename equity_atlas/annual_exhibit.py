@@ -4,6 +4,7 @@ from datetime import date
 import json
 import re
 
+from .depreciation import TAG as DEPRECIATION_TAG
 from .facts import exact_sec_amount
 from .fetch import SEC
 from .rendered_filing import ENDPOINT, parse_result, scaled
@@ -12,6 +13,7 @@ ADP = 8670
 AMGEN = 318154
 AMGEN_REVIEWED_LEASES = "0000318154-26-000010"
 SALESFORCE = 1108524
+GE = 40545
 TAG = "disclosed:AnnualEarningsExhibit"
 OPERATING_TAG = "derived:OperatingProfitIncludingClientFunds"
 OTHER_INCOME = "us-gaap:NonoperatingIncomeExpense"
@@ -25,7 +27,7 @@ ADP_OPERATING_LINES = (
 
 PROFILES = {
     ADP: (
-        "All other interest expense", "Twelve Months Ended", {
+        "All other interest expense", "Twelve Months Ended {month} {day}, {year}", {
             "client_funds_interest_income_corporate": "Corporate extended interest income (B)",
             "corporate_interest_income_other": "All other interest income",
             "corporate_interest_income_total": "Total interest income on corporate funds (component of Other (income)/expense, net)",
@@ -35,7 +37,7 @@ PROFILES = {
         },
     ),
     AMGEN: (
-        "GAAP Net Income Depreciation and amortization Interest expense Provision EBITDA", "Twelve months ended", {
+        "GAAP Net Income Depreciation and amortization Interest expense Provision EBITDA", "Twelve months ended {month} {day}, {year}", {
             "gaap_net": "GAAP Net Income",
             "interest_net": "Interest expense, net",
             "income_tax": "Provision for income taxes",
@@ -43,8 +45,22 @@ PROFILES = {
             "ebitda_exhibit": "EBITDA (a)",
         },
     ),
+    GE: (
+        "Total revenue Insurance revenue Adjusted revenue Adjusted costs Adjusted other income Operating profit GAAP",
+        "Twelve months ended {month} {day} {year}", {
+            "gaap_sales": "Total revenue (GAAP)",
+            "gaap_costs": "Total costs and expenses (GAAP)",
+            "gaap_other_income": "Other income (loss) (GAAP)",
+            "gaap_pretax": "Profit (loss) (GAAP)",
+            "insurance_revenue": "Less: Insurance revenue",
+            "sales_adjusted": "Adjusted revenue (Non-GAAP)",
+            "costs_adjusted": "Adjusted costs (Non-GAAP)",
+            "other_income_adjusted": "Adjusted other income (loss) (Non-GAAP)",
+            "ebit_adjusted": "Operating profit (loss) (Non-GAAP)",
+        },
+    ),
     SALESFORCE: (
-        "GAAP income from operations amortization of purchased intangibles", "Fiscal Year Ended", {
+        "GAAP income from operations amortization of purchased intangibles", "Fiscal Year Ended {month} {day}, {year}", {
             "gaap_ebit": "GAAP income from operations",
             "gaap_net": "GAAP net income",
             "amortization_purchased_intangibles": "Amortization of purchased intangibles (1)",
@@ -56,6 +72,7 @@ PINNED = {
     (ADP, "0000008670-26-000030"): "0000008670-26-000025",
     (AMGEN, AMGEN_REVIEWED_LEASES): "0000318154-26-000003",
     (SALESFORCE, "0001108524-26-000060"): "0001108524-26-000056",
+    (GE, "0000040545-26-000008"): "0000040545-26-000005",
 }
 
 
@@ -73,7 +90,7 @@ def exhibit_url(url, cik, filing):
 
 
 def load_exhibit(cache, cik, report, filing):
-    query, heading, labels = PROFILES[cik]
+    query, date_format, labels = PROFILES[cik]
     args = {"company": f"{cik:010d}", "accession": filing["accession"], "form": "8-K",
             "find": query, "max_tables": 8}
     request = json.dumps({
@@ -91,7 +108,7 @@ def load_exhibit(cache, cik, report, filing):
     receipts = {line["url"]: line["sha256_16"]
                 for line in result["_meta"]["canlicapital.com/receipt"]["sources"]}
     end = date.fromisoformat(report["end"])
-    column = f"{heading} {end:%B} {end.day}, {end.year}"
+    column = date_format.format(month=end.strftime("%B"), day=end.day, year=end.year)
     matches = []
     for table in entry["tables"]:
         url = table.get("url", "")
@@ -145,7 +162,8 @@ def exhibit_facts(cik, report, period, evidence):
     anchor_keys = {
         ADP: ("pretax", "interest", "corporate_interest_income_filed", "nonoperating_income_net"),
         AMGEN: ("net", "interest", "tax", "da_with_other", "da_ppe", "da_ppe_and_rou", "amortization"),
-        SALESFORCE: ("ebit", "net"),
+        SALESFORCE: ("ebit", "net", "da_ppe", "da_with_rou_and_impairment"),
+        GE: ("sales", "pretax"),
     }[cik]
     if any((facts[key]["accession"], facts[key]["start"], facts[key]["unit"], facts[key]["url"]) !=
            (report["accession"], period["start"], "USD", report["url"]) for key in anchor_keys):
@@ -169,9 +187,23 @@ def exhibit_facts(cik, report, period, evidence):
                 not 0 <= facts["da_ppe"]["value"] <= facts["da_ppe_and_rou"]["value"] <= values["da_including_operating_rou"]):
             raise ValueError("Amgen EBITDA exhibit does not reconcile to the 10-K")
         fields = ("da_including_operating_rou",)
+    elif cik == GE:
+        gaap_profit = values["gaap_sales"] - values["gaap_costs"] + values["gaap_other_income"]
+        adjusted_sales = values["gaap_sales"] - values["insurance_revenue"]
+        adjusted_profit = values["sales_adjusted"] - values["costs_adjusted"] + values["other_income_adjusted"]
+        # GE prints the reconciliation in millions and calculates the totals before rounding.
+        if ((facts["sales"]["value"], facts["pretax"]["value"]) != (values["gaap_sales"], values["gaap_pretax"]) or
+                abs(gaap_profit - values["gaap_pretax"]) > 1_000_000 or
+                abs(adjusted_sales - values["sales_adjusted"]) > 1_000_000 or
+                abs(adjusted_profit - values["ebit_adjusted"]) > 1_000_000 or
+                not 0 <= values["insurance_revenue"] <= values["gaap_sales"]):
+            raise ValueError("GE adjusted operating profit does not reconcile to the full-year exhibit")
+        fields = labels.keys() - {"gaap_sales", "gaap_costs", "gaap_other_income", "gaap_pretax"}
     else:
         if ((facts["ebit"]["value"], facts["net"]["value"]) != (values["gaap_ebit"], values["gaap_net"]) or
-                not 0 <= values["amortization_purchased_intangibles"] <= facts["da_with_rou_and_impairment"]["value"]):
+                facts["da_ppe"]["tag"] != DEPRECIATION_TAG or
+                min(values["amortization_purchased_intangibles"], facts["da_ppe"]["value"]) < 0 or
+                values["amortization_purchased_intangibles"] + facts["da_ppe"]["value"] > facts["da_with_rou_and_impairment"]["value"]):
             raise ValueError("Purchased-intangible amortization exhibit disagrees with the annual filing")
         fields = ("amortization_purchased_intangibles",)
 
@@ -197,6 +229,19 @@ def exhibit_facts(cik, report, period, evidence):
                  for fact, sign in ((total, 1), (ppe_and_rou, -1), (ppe, 1))]
         result["da"] = {**total, "value": intangible + ppe["value"], "components": parts,
                         "locator": "Filed D&A excluding operating lease asset amortization"}
+    if cik == SALESFORCE:
+        amortization = result["amortization_purchased_intangibles"]
+        ppe = facts["da_ppe"]
+        parts = [{**fact, "sign": 1, "line": fact["locator"], "table_url": fact["url"]}
+                 for fact in (ppe, amortization)]
+        result["da"] = {**amortization, "value": ppe["value"] + amortization["value"], "components": parts,
+                        "rounding_increment": 100_000_000,
+                        "locator": "Fixed-asset D&A and acquired-intangible amortization (includes a rounded input)"}
+    if cik == GE:
+        result["ebit_adjusted"]["components"] = [
+            {**result[key], "sign": sign, "line": labels[key], "table_url": url}
+            for key, sign in (("sales_adjusted", 1), ("costs_adjusted", -1), ("other_income_adjusted", 1))
+        ]
     return result
 
 

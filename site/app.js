@@ -17,6 +17,14 @@ const fieldNames={
  da_ppe_and_rou:'PP&E depreciation and right-of-use asset amortization',
  da_including_operating_rou:'D&A including operating lease asset amortization',
  impairment_intangible_net:'Intangible asset impairment net of reversals',
+ impairment_ppe_and_exploration:'Exceptional PP&E impairments and capitalized exploration charges',
+ impairment_intangibles_and_goodwill:'Exceptional impairment of intangible assets including goodwill',
+ impairment_goodwill:'Goodwill impairment',
+ insurance_revenue:'Insurance revenue',
+ sales_adjusted:'Adjusted revenue (non-GAAP)',
+ costs_adjusted:'Adjusted costs (non-GAAP)',
+ other_income_adjusted:'Adjusted other income (non-GAAP)',
+ ebit_adjusted:'Adjusted operating profit (non-GAAP)',
  impairment_ppe_net:'Owned PP&E impairment net of reversals',
  capex_intangibles_discontinued:'Cash intangible purchases by discontinued operations',
  capex_intangibles_continuing:'Cash intangible purchases by continuing operations',
@@ -113,13 +121,15 @@ function detail(r) {
      'disclosed:AnnualEarningsExhibit':'Annual filing and exhibit reconciliation',
    };
    const title=titles[v.tag]||'Filed income statement lines';
-   return '<details><summary>'+title+'</summary><ul>'+v.components.map(part=>{
+   const anchor=v.tag==='disclosed:ReconciledAnnualNote'&&v.rounding_increment?
+     '<p class="minor">Exact annual amount as SEC-tagged · '+esc(v.unit)+' '+reportedAmount.format(v.anchor_value)+'</p>':'';
+   return '<details><summary>'+title+'</summary>'+anchor+'<ul>'+v.components.map(part=>{
      const source=part.table_url||part.source||v.table_url;
      return '<li>'+esc(part.line.replace('::',' · '))+' · '+esc(v.unit)+' '+reportedAmount.format(part.sign*part.value)+
        ' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">Source</a></li>';
    }).join('')+'</ul></details>';
  };
- const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':k==='da'&&period.facts.da_including_content?'D&A excluding content amortization':field(k))+'</td><td>'+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
+ const factRows=period=>period?Object.entries(period.facts).map(([k,v])=>'<tr><td>'+esc(v.tag==='derived:FiledOperatingProfit'?'Derived operating profit':k==='da'&&period.facts.da_including_content?'D&A excluding content amortization':field(k))+'</td><td>'+(v.rounding_increment?'≈ ':'')+esc(v.unit||period.currency)+' '+reportedAmount.format(v.value)+'</td><td><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.url)+'">'+esc(v.form||'Filing')+' · '+esc(v.filed)+'</a><br><span class="minor">'+esc(v.locator||v.tag)+'</span>'+capexDetail(v)+componentDetail(v)+(period.route==='rendered_10q'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.table_url)+'">SEC table via Canli Capital</a>':period.route==='sec_workbook'?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Open10K workbook from SEC data</a>':['issuer_20f','regulator_20f'].includes(period.route)?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Downloaded 20-F PDF</a>':(['issuer_inline','issuer_instance','issuer_10q'].includes(period.route)||v.tag?.startsWith('filing_claims:'))?'<br><a target="_blank" rel="noopener noreferrer" href="'+safeUrl(v.source)+'">Issuer filing copy</a>':'')+'</td></tr>').join(''):'';
  const factTable=body=>'<div class="tablewrap"><table><thead><tr><th scope="col">Metric</th><th scope="col">Amount</th><th scope="col">Filing and concept</th></tr></thead><tbody>'+body+'</tbody></table></div>';
  const interim=[['Standalone quarter',r.edgar?.quarter],['Fiscal year to date',r.edgar?.ytd]].filter(([,x])=>x).map(([title,p])=>'<details><summary>'+title+' · '+esc(p.start)+' to '+esc(p.end)+'</summary>'+factTable(factRows(p))+'</details>').join('');
  const q=r.market;

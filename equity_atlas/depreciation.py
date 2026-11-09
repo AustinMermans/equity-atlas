@@ -34,6 +34,7 @@ AMAZON = (1018724, "0001018724-26-000004")
 SANOFI = (1121404, "0001628280-26-008403")
 SOUTHERN = (92122, "0000092122-26-000006")
 TESLA = (1318605, "0001628280-26-003952")
+TOTALENERGIES = (879764, "0001104659-26-035876")
 ALIBABA = (1577552, "0001193125-26-231755")
 SALESFORCE = (1108524, "0001108524-26-000060")
 NOVO = (353278, "0000353278-26-000012")
@@ -406,7 +407,7 @@ CASH_TABLES = {
             ),
         },
     ),
-    (879764, "0001104659-26-035876"): (  # TTE
+    TOTALENERGIES: (
         'CONSOLIDATED STATEMENT OF CASH FLOW', "R5.htm", 1_000_000, {
             "da_with_impairment": (
                 ('ifrs-full:AdjustmentsForDepreciationAndAmortisationExpenseAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss', 'Depreciation, depletion, amortization and impairment'),
@@ -503,6 +504,18 @@ NOTES = {
                                 "Note D.3 · Owned PP&E impairment net of reversals"),),
     },
     SOUTHERN: {"retirement_accretion": (RETIREMENT_ACCRETION,)},
+    SALESFORCE: {
+        "da_ppe": ((US_DA, "Note 5 · Fixed-asset D&A, including finance leases (rounded)"),),
+        "amortization_finance_rou": (FINANCE_LEASE_DA,),
+    },
+    TOTALENERGIES: {
+        "impairment_ppe_and_exploration": (("ifrs-full:ImpairmentLossRecognisedInProfitOrLossPropertyPlantAndEquipment",
+                                            "Note 7.2 · Exceptional PP&E impairments and capitalized exploration charges"),),
+        "impairment_intangibles_and_goodwill": (("ifrs-full:ImpairmentLossRecognisedInProfitOrLossIntangibleAssetsAndGoodwill",
+                                                 "Note 7.1 · Exceptional impairments of intangible assets including goodwill"),),
+        "impairment_goodwill": (("ifrs-full:ImpairmentLossRecognisedInProfitOrLossGoodwill",
+                                 "Note 7.1 · Goodwill impairments included in intangible impairments"),),
+    },
     TESLA: {
         "da_ppe": (("us-gaap:Depreciation", "Note 6 · PP&E depreciation (rounded)"),),
         "amortization_finance_rou": (FINANCE_LEASE_DA,),
@@ -603,7 +616,7 @@ GAPS = {
     SANOFI: "The cash-flow adjustment includes impairment across several asset classes. Separate the continuing operations depreciation and amortization from those charges.",
     SOUTHERN: "The cash-flow adjustment uses a broader concept than the income-statement expense. Reconcile accretion and the nuclear fuel treatment before using the total.",
     TESLA: "The cash-flow adjustment includes impairment. The property and equipment note discloses depreciation separately, while the remaining amount needs to be reconciled.",
-    (879764, "0001104659-26-035876"): "The cash-flow adjustment includes impairments of multiple asset classes. Separate the depreciation, depletion and amortization from those charges.",
+    TOTALENERGIES: "The cash-flow adjustment includes impairments of multiple asset classes. Separate the depreciation, depletion and amortization from those charges.",
 }
 
 
@@ -619,7 +632,7 @@ PARTIAL_DA = {
     AMAZON: ("us-gaap:DepreciationDepletionAndAmortization", "da_with_other",
              "Cash-flow D&A including capitalized content, operating lease assets, and other"),
     ALIBABA: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe", "Property and equipment depreciation"),
-    SALESFORCE: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe", "Fixed-asset depreciation and amortization"),
+    SALESFORCE: (US_DA, "da_ppe", "Note 5 · Fixed-asset D&A, including finance leases (rounded)"),
     VALERO: ("us-gaap:DepreciationAndAmortization", "da_general_and_administrative", "General and administrative depreciation and amortization"),
     MCDONALDS: ("us-gaap:DepreciationDepletionAndAmortization", "da_general_and_administrative", "Selling, general and administrative depreciation and amortization"),
     MCKESSON: ("us-gaap:DepreciationDepletionAndAmortization", "da_ppe_and_finance_lease", "Depreciation of PP&E and amortization of finance lease right-of-use assets"),
@@ -832,6 +845,8 @@ DA_SCOPE_BOUNDS = {
     AMGEN: ("da_ppe", "da_ppe_and_rou"),
     AMAZON: ("da", "da_with_other"),
     TESLA: ("da_ppe", "da_with_impairment"),
+    SALESFORCE: ("amortization_finance_rou", "da_ppe"),
+    TOTALENERGIES: ("impairment_goodwill", "impairment_intangibles_and_goodwill"),
     DUKE: ("da_excluding_nuclear_fuel", "da_with_accretion"),
     MODERNA: ("da_ppe", "da"),
     UBER: ("da", "da_including_nonoperating"),

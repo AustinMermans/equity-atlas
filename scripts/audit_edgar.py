@@ -168,6 +168,8 @@ ANNUAL_NOTES = {
     "MRK": {"other_income_expense_note": (151, (-343, 1357, 323, -368, -615, -203))},
     "PFE": {"other_income_expense_note": (6724, (-603, 2671, 67, -192, -678, 1057, 4940, 0, -538))},
     "CSCO": {"amortization_purchased_intangibles_with_impairment": (1863, (947, 916))},
+    "IBM": {"other_income_expense_note": (-442, (993, -641, -645, 7, 65, -221))},
+    "JNJ": {"other_income_expense_note": (-7200, (-6000, -500, -400, 200, 0, -500))},
 }
 for symbol, fields in ANNUAL_NOTES.items():
     period = rows[symbol]["statement"]
@@ -197,7 +199,7 @@ DEPRECIATION = {
     "AMZN": ("USD", {"da": 42677, "da_with_other": 65756, "da_ppe_and_finance_lease": 41860,
                      "amortization": 817, "amortization_finance_rou": 3284}),
     "BABA": ("CNY", {"da": 45014, "da_ppe": 34963, "amortization": 10051, "ppe_da_with_impairment_and_lease": 37067}),
-    "CRM": ("USD", {"amortization_purchased_intangibles": 1687, "da_ppe": 1200, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
+    "CRM": ("USD", {"da": 2887, "amortization_purchased_intangibles": 1687, "da_ppe": 1200, "amortization_finance_rou": 375, "da_with_rou_and_impairment": 3631, "amortization_deferred_contract_costs": 2197}),
     "NVO": ("DKK", {"da": 14666, "da_with_impairment": 21982, "asset_impairment": 7316}),
     "0857.HK": ("CNY", {"da": 238036}),
     "ABBV": ("USD", {"da": 8139}),
@@ -242,7 +244,8 @@ DEPRECIATION = {
     "TMO": ("USD", {"da": 2780}),
     "TSLA": ("USD", {"da_with_impairment": 6148, "da_ppe": 5030, "amortization_finance_rou": 118}),
     "TSM": ("TWD", {"da": 688096.4}),
-    "TTE": ("USD", {"da_with_impairment": 13847}),
+    "TTE": ("USD", {"da_with_impairment": 13847, "impairment_ppe_and_exploration": 575,
+                     "impairment_intangibles_and_goodwill": 235, "impairment_goodwill": 47}),
     "TXN": ("USD", {"da": 1999}),
     "UNP": ("USD", {"da": 2465}),
     "VLO": ("USD", {"da": 3158, "da_cost_of_sales": 3095, "da_general_and_administrative": 63}),
@@ -256,11 +259,23 @@ for symbol, (currency, fields) in DEPRECIATION.items():
         if (period["currency"], fact.get("value")) != (currency, amount):
             raise SystemExit(f"{symbol} {key}: expected {currency} {amount}; got {fact}")
         checked += 1
-for symbol in ("CRM", "CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
+for symbol in ("CSCO", "DUK", "GOOG", "SNY", "SO", "TSLA", "TTE", "XOM"):
     period = rows[symbol]["statement"]
     if "da" in period["facts"] or not period.get("depreciation_gap"):
         raise SystemExit(f"{symbol}: expected a documented D&A gap")
 issuers = set(EXPECTED) | set(CASH_INVESTMENT) | set(INCOME_STATEMENT) | set(DEPRECIATION) | {"SO"}
+for symbol, key in (("CRM", "da"), ("JNJ", "other_income_expense_note")):
+    if rows[symbol]["statement"]["facts"][key].get("rounding_increment") != 100_000_000:
+        raise SystemExit(f"{symbol}: missing source rounding disclosure")
+if rows["JNJ"]["statement"]["facts"]["other_income_expense_note"]["anchor_value"] != 7_209_000_000:
+    raise SystemExit("JNJ: incorrect exact other income and expense anchor")
+checked += 1
+for key, millions in {"ebit_adjusted": 9055, "sales_adjusted": 42322, "costs_adjusted": 34606,
+                      "other_income_adjusted": 1339, "insurance_revenue": 3533}.items():
+    fact = rows["GE"]["statement"]["facts"].get(key, {})
+    if (fact.get("unit"), fact.get("value")) != ("USD", millions * 1_000_000):
+        raise SystemExit(f"GE adjusted reconciliation: incorrect {key}")
+    checked += 1
 issuers.update(ANNUAL_NOTES)
 issuers.update(symbol for symbol, _, _ in OTHER_CASH_FLOWS)
 print(f"Matched {checked} filed and reconciled values across {len(issuers)} issuers")

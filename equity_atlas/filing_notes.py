@@ -25,8 +25,11 @@ class Note:
     scale: int = 1_000_000
     date_format: str = "Year Ended {month} {day}, {year}"
     document: str | None = None
+    document_filename: str | None = None
     title_phrase: str | None = None
     anchor_line: str | None = None
+    anchor_sign: int = -1
+    rounding_increment: int = 0
 
 
 PROFILES = {
@@ -36,14 +39,14 @@ PROFILES = {
             "ifrs-full:OtherOperatingIncomeExpense", "Total other income and expenses", (
                 "Loss on disposal of property, plant and mine development (Note 9)", "Interest income",
                 "Environmental remediation", "Loss on sale of equity securities", "Other",
-            ), scale=1_000, document="EX-99.2",
+            ), scale=1_000, document="EX-99.2", document_filename="aem-{date}xex99d2.htm",
         ),
         DERIVATIVES: Note(
             "Note 21 · Gains and losses on derivative financial instruments", "Unrealized gain on warrants",
             "ifrs-full:GainsLossesOnChangeInFairValueOfDerivatives", "(Gain) loss on derivative financial instruments", (
                 "Premiums realized on written foreign exchange call options", "Unrealized gain on warrants",
                 "Realized loss on currency and commodity derivatives", "Unrealized (gain) loss on currency and commodity derivatives",
-            ), scale=1_000, document="EX-99.2",
+            ), scale=1_000, document="EX-99.2", document_filename="aem-{date}xex99d2.htm",
         ),
     },
     (14272, "10-K"): {
@@ -68,6 +71,27 @@ PROFILES = {
             ), date_format="{year}",
         ),
     },
+    (51143, "10-K"): {
+        OTHER: Note(
+            "Note F · Other income and expense", "Total other (income) and expense retirement-related",
+            "us-gaap:InterestIncomeOther", "Total other (income) and expense", (
+                "(Gains)/losses on foreign currency transactions (1)", "(Gains)/losses on derivative instruments (1)",
+                "Interest income", "Net (gains)/losses from securities and investment assets",
+                "Retirement-related costs/(income) (2)", "Other (3)",
+            ), date_format="{year}", document="EX-13", document_filename="ibm-{date}_d2.htm",
+            title_phrase="components of other (income) and expense", anchor_line="Interest income",
+        ),
+    },
+    (200406, "10-K"): {
+        OTHER: Note(
+            "Management discussion · Other income and expense, rounded to $100 million",
+            "Litigation Employee benefit plan Monetization royalty rights Other Income Expense Net",
+            OTHER_NONOPERATING, "Total Other (Income) Expense, Net", (
+                "Litigation related (1)", "Employee benefit plan related", "Changes in the fair value of securities (2)",
+                "Acquisition, Integration and Divestiture related (3)", "Monetization of royalty rights", "Other",
+            ), scale=1_000_000_000, date_format="{year}", rounding_increment=100_000_000,
+        ),
+    },
     (858877, "10-K"): {
         "amortization_purchased_intangibles_with_impairment": Note(
             "Note 5 · Amortization of purchased intangible assets, including impairment",
@@ -75,7 +99,7 @@ PROFILES = {
             "us-gaap:AmortizationOfIntangibleAssets", "Total", ("Cost of sales", "Operating expenses"),
             date_format="{month} {day}, {year}",
             title_phrase="amortization of purchased intangible assets, including impairment charges",
-            anchor_line="Operating expenses",
+            anchor_line="Operating expenses", anchor_sign=1,
         ),
     },
     (78003, "10-K"): {
@@ -96,6 +120,8 @@ PINNED = {
     (310158, "0000310158-26-000063"),
     (78003, "0000078003-26-000026"),
     (858877, "0000858877-26-000132"),
+    (51143, "0000051143-26-000010"),
+    (200406, "0000200406-26-000016"),
 }
 
 
@@ -103,9 +129,10 @@ def notes_for(cik, report):
     return PROFILES.get((cik, report["form"]), {})
 
 
-def note_url(cik, report, note):
-    if cik == 2809 and note.document == "EX-99.2":
-        return f"{report['path']}/aem-{report['end'].replace('-', '')}xex99d2.htm"
+def note_url(report, note):
+    if note.document_filename:
+        filename = note.document_filename.format(date=report["end"].replace("-", ""))
+        return f"{report['path']}/{filename}"
     return report["url"]
 
 
@@ -119,6 +146,16 @@ def amount_in_note(rows, label, column, scale):
     if type(value) not in (int, float):
         raise ValueError(f"Invalid amount for note line {label}")
     return scaled(value, scale)
+
+
+def reconciles(note, total, amounts, anchor):
+    rounding = note.rounding_increment
+    anchored = note.anchor_sign * (amounts[note.anchor_line] if note.anchor_line else total)
+    return (
+        abs(anchored - anchor) <= rounding // 2 and
+        abs(sum(amounts.values()) - total) <= (len(amounts) + 1) * rounding // 2 and
+        (not rounding or all(value % rounding == 0 for value in (total, *amounts.values())))
+    )
 
 
 def note_components(cache, cik, report, note, anchor):
@@ -138,7 +175,7 @@ def note_components(cache, cik, report, note, anchor):
             tuple(entry["filing"][key] for key in ("accession", "form", "filed", "period")) !=
             tuple(report[key] for key in ("accession", "form", "filed", "end"))):
         raise ValueError("Note response does not match the annual SEC filing")
-    url = note_url(cik, report, note)
+    url = note_url(report, note)
     receipts = {entry["url"]: entry["sha256_16"]
                 for entry in result["_meta"]["canlicapital.com/receipt"]["sources"]}
     digest = receipts.get(url, "")
@@ -155,19 +192,21 @@ def note_components(cache, cik, report, note, anchor):
         index = table["columns"].index(year)
         try:
             total = amount_in_note(table["rows"], note.total, index, note.scale)
-            amounts = [amount_in_note(table["rows"], label, index, note.scale) for label in note.lines]
+            amounts = {label: amount_in_note(table["rows"], label, index, note.scale) for label in note.lines}
         except ValueError:
             continue
-        anchored = amounts[note.lines.index(note.anchor_line)] if note.anchor_line else -total
-        if sum(amounts) == total and anchored == anchor:
+        if reconciles(note, total, amounts, anchor):
             matches.append((total, amounts))
     if len(matches) != 1:
         raise ValueError(f"Missing unique reconciled full-year table for {note.heading}")
     total, amounts = matches[0]
     parts = [{"line": label, "value": abs(value), "sign": -1 if value < 0 else 1, "table_url": url}
-             for label, value in zip(note.lines, amounts, strict=True)]
-    return {"value": total, "table_url": url, "table_sha256_16": digest, "sha256": receipt["sha256"],
+             for label, value in amounts.items()]
+    fact = {"value": total, "table_url": url, "table_sha256_16": digest, "sha256": receipt["sha256"],
             "components": parts}
+    if note.rounding_increment:
+        fact["rounding_increment"] = note.rounding_increment
+    return fact
 
 
 def enrich_notes(cache, obj, meta, cik, report, statement):
@@ -193,13 +232,12 @@ def valid_note(period, report, cik, field, fact):
     if not note:
         return False
     parts = fact.get("components", [])
-    url = note_url(cik, report, note)
+    url = note_url(report, note)
     if (tuple(part["line"] for part in parts) != note.lines or
             any(part["table_url"] != url or type(part["value"]) is not int or part["value"] < 0 or
                 part["sign"] not in (-1, 1) for part in parts)):
         return False
     amounts = {part["line"]: part["sign"] * part["value"] for part in parts}
-    anchor = amounts[note.anchor_line] if note.anchor_line else -fact["value"]
     return (
         (period["period_kind"], period["filing"], period["end"], period["currency"]) ==
         ("annual", report["accession"], report["end"], "USD") and
@@ -209,5 +247,6 @@ def valid_note(period, report, cik, field, fact):
         bool(re.fullmatch(r"[0-9a-f]{16}", fact.get("table_sha256_16", ""))) and
         all(re.fullmatch(r"[0-9a-f]{64}", fact.get(k, "")) for k in ("sha256", "anchor_sha256")) and
         fact["anchor_tag"] == note.anchor and type(fact["anchor_value"]) is int and
-        sum(amounts.values()) == fact["value"] and fact["anchor_value"] == anchor
+        fact.get("rounding_increment", 0) == note.rounding_increment and
+        reconciles(note, fact["value"], amounts, fact["anchor_value"])
     )
