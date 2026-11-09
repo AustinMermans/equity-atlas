@@ -1,11 +1,15 @@
 """Licensed public data from Taiwan's exchange and central bank."""
+import csv
 from datetime import date, timedelta
+import io
+import json
 import math
 import re
 
 TWSE_CLOSE = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
 TWSE_DAILY_QUOTES = "https://www.twse.com.tw/rwd/en/afterTrading/MI_INDEX?date={}&type=ALLBUT0999&response=json"
 TWSE_ISSUERS = "https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+TWSE_ISSUERS_CSV = "https://mopsfin.twse.com.tw/opendata/t187ap03_L.csv"
 TWSE_MULTIPLES = "https://www.twse.com.tw/rwd/en/afterTrading/BWIBBU_d?date={}&selectType=ALL&response=json"
 CBC_FX = "https://www.cbc.gov.tw/en/lp-700-2-1-40.html"
 OPEN_LICENSE = "https://data.gov.tw/en/license"
@@ -91,9 +95,26 @@ def dated_quotes(report, day):
     return [{"Date": roc_day, "Code": row[code], "ClosingPrice": row[price]} for row in table["data"]]
 
 
+def checked_registry(rows):
+    fields = {"出表日期", "公司代號", "公司名稱", "英文簡稱", SHARES}
+    if not isinstance(rows, list) or not rows or any(
+            not isinstance(row, dict) or any(not isinstance(row.get(key), str) for key in fields)
+            for row in rows):
+        raise ValueError("Invalid Taiwan exchange issuer registry")
+    return rows
+
+
+def registry_csv(raw):
+    return checked_registry(list(csv.DictReader(io.StringIO(raw.decode("utf-8-sig")))))
+
+
 def load_taiwan(cache, day, limit=50):
-    registry, shares_meta = cache.json(TWSE_ISSUERS, 12)
     issues = []
+    try:
+        registry, shares_meta = cache.get(TWSE_ISSUERS, 12, decode=lambda raw: checked_registry(json.loads(raw)))
+    except (OSError, ValueError, TypeError) as exc:
+        issues.append(f"TWSE OpenAPI issuer registry: {exc}")
+        registry, shares_meta = cache.get(TWSE_ISSUERS_CSV, 12, decode=registry_csv)
     try:
         quotes, close_meta = cache.json(TWSE_CLOSE, 4)
         quote_day, rows = taiwan_issuers(quotes, registry, day, limit)

@@ -8,6 +8,16 @@ import re
 from .sec_rendered import read_cash_flow
 
 ENDPOINT = "https://canlicapital.com/mcp/canli"
+BMO_CIK = 927971
+BMO_CASH_ROWS = {
+    "Depreciation of premises and equipment (Note 8)",
+    "Depreciation of other assets",
+    "Amortization of intangible assets (Note 10)",
+    "Net cash provided by operating activities",
+    "Net cash (used in) financing activities",
+    "Net purchases of premises and equipment and software (Notes 8 and 10)",
+    "Net cash provided by (used in) investing activities",
+}
 
 
 def request_bytes(company, period, accession, statement=None):
@@ -54,12 +64,65 @@ def table_belongs_to_filing(table_url, report, pinned_filename=None):
     return filename == pinned_filename if pinned_filename else bool(re.fullmatch(r"R[1-9]\d*\.htm", filename))
 
 
+def bmo_exhibit_url(url, report):
+    return (
+        report["form"] == "40-F" and report["path"].startswith(f"https://www.sec.gov/Archives/edgar/data/{BMO_CIK}/") and
+        isinstance(url, str) and url.startswith(report["path"] + "/") and
+        bool(re.fullmatch(r"[\w-]+dex993\.htm", url.removeprefix(report["path"] + "/"), re.ASCII))
+    )
+
+
+def bmo_cash_exhibit(cache, report, table, column):
+    request = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "run_tool", "arguments": {"name": "filing_tables", "arguments": {
+            "company": f"{BMO_CIK:010d}", "accession": report["accession"], "form": report["form"], "document": "EX-99.3",
+            "find": "Depreciation of other assets Amortization of intangible assets net purchases premises and equipment",
+            "max_tables": 8,
+        }}},
+    }, sort_keys=True).encode()
+    raw, receipt = cache.get(ENDPOINT, 8760, post_json=request)
+    result = parse_result(raw)
+    payload = result["structuredContent"]
+    filing, = payload["results"]
+    if (receipt["url"] != ENDPOINT or payload["company"]["cik"] != BMO_CIK or
+            tuple(filing["filing"][k] for k in ("accession", "form", "filed", "period")) !=
+            tuple(report[k] for k in ("accession", "form", "filed", "end"))):
+        raise ValueError("Bank of Montreal exhibit does not match the selected annual filing")
+    receipts = {source["url"]: source["sha256_16"]
+                for source in result["_meta"]["canlicapital.com/receipt"]["sources"]}
+    candidates = [t for t in filing["tables"] if t["source"] == "document table" and t["title"] == table["title"]
+                  and bmo_exhibit_url(t.get("url"), report) and re.fullmatch(r"[0-9a-f]{16}", receipts.get(t["url"], ""))]
+    exhibit, = candidates
+    year = report["end"][:4]
+    exhibit_col = exhibit["columns"].index(year)
+    if exhibit["columns"].count(year) != 1 or exhibit["columns"][exhibit_col + 1] != "":
+        raise ValueError("Unexpected Bank of Montreal cash-flow exhibit columns")
+    rows = [r for r in table["rows"] if r[0] in BMO_CASH_ROWS]
+    amounts = {r[0]: r[column] for r in rows}
+    if amounts.keys() != BMO_CASH_ROWS or len(rows) != len(amounts):
+        raise ValueError("Missing or ambiguous Bank of Montreal cash-flow lines")
+    for label, value in amounts.items():
+        matches = [n for r in exhibit["rows"] if r[0] == label
+                   for n in r[exhibit_col:exhibit_col + 2] if type(n) in (int, float)]
+        if matches != [value]:
+            raise ValueError(f"Bank of Montreal cash-flow exhibit disagrees for {label}")
+    url = exhibit["url"]
+    return {**table, "rows": rows}, column, receipt, {
+        "table_url": url, "table_sha256_16": receipts[url], "table_kind": "bmo_cash_flow_exhibit",
+    }
+
+
 def valid_table_source(part, report, pinned_filename=None):
     url = part.get("table_url")
     digest = part.get("table_sha256_16", "")
     source = part["source"]
+    if not re.fullmatch(r"[0-9a-f]{16}", digest):
+        return False
+    if part.get("table_kind") == "bmo_cash_flow_exhibit":
+        return source == ENDPOINT and bmo_exhibit_url(url, report)
     return (
-        table_belongs_to_filing(url, report, pinned_filename) and bool(re.fullmatch(r"[0-9a-f]{16}", digest)) and
+        table_belongs_to_filing(url, report, pinned_filename) and
         (source == ENDPOINT or (source == url and part["sha256"][:16] == digest))
     )
 
@@ -88,7 +151,12 @@ def annual_table(cache, cik, report, statement, kind, title, pinned_filename=Non
     if kind != "cash_flow":
         raise ValueError("Missing rendered statement source checksum")
     # Archived submissions can fill the connector's receipt before it records the statement.
-    raw, receipt = cache.get(url, 8760)
+    try:
+        raw, receipt = cache.get(url, 8760)
+    except OSError:
+        if cik == BMO_CIK:
+            return bmo_cash_exhibit(cache, report, table, table["columns"].index(year))
+        raise
     if receipt["url"] != url:
         raise ValueError("Unexpected source for SEC-rendered cash-flow document")
     table, column = read_cash_flow(raw, title, statement["currency"], statement["end"], scale)

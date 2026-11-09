@@ -76,9 +76,6 @@ CASH_TABLES = {
             "amortization": (BMO_AMORTIZATION,),
         },
     ),
-    (831001, "0000831001-26-000011"): (  # C
-        "CONSOLIDATED STATEMENT OF CASH FLOWS", "R9.htm", 1_000_000, {"da": (CASH_DA,)},
-    ),
     CIBC: (
         "Consolidated statement of cash flows", "R9.htm", 1_000_000, {
             "da_with_impairment": ((IFRS_CASH_DA_AND_IMPAIRMENT, "Amortization and impairment"),),
@@ -92,7 +89,6 @@ CASH_TABLES = {
             ),
         },
     ),
-    JPM: ("Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, {"da": (CASH_DA,)}),
     SCHWAB: (
         "Consolidated Statements of Cash Flows", "R9.htm", 1_000_000, {
             "da": (SCHWAB_DA, SCHWAB_AMORTIZATION),
@@ -576,7 +572,11 @@ NOTES = {
                                 "Note D.3 · Owned PP&E impairment net of reversals"),),
     },
     SOUTHERN: {"retirement_accretion": (RETIREMENT_ACCRETION,)},
+    (831001, "0000831001-26-000011"): {  # C
+        "da": ((CASH_DA[0], "Continuing cash flow · Depreciation and amortization"),),
+    },
     JPM: {
+        "da": ((CASH_DA[0], "Consolidated cash flow · Depreciation and amortization"),),
         "depreciation_leased_assets": (("us-gaap:OperatingLeasesIncomeStatementDepreciationExpenseOnPropertySubjectToOrHeldForLease",
                                        "Noninterest expense note · Depreciation of assets under operating leases"),),
     },

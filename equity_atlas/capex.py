@@ -51,6 +51,9 @@ FINANCING_TOTALS = {
 # These are face cash-flow amounts unless a filing exposes its separate PP&E
 # outflow in the FCF reconciliation. Reviewed rules revalidate the current filing.
 DIRECT = {
+    (831001, "0000831001-26-000011"): (  # C
+        (PPE, "Capital expenditures on premises and equipment and capitalized software"),
+    ),
     (937966, "0001628280-26-011378"): (
         (PPE, "Purchase of property, plant and equipment"), (INTANGIBLES, "Purchase of intangible assets"),
     ),
@@ -82,11 +85,6 @@ SECTION_PROFILES = {
     (1381197, "0001381197-26-000062"): (  # IBKR
         "Condensed Consolidated Statements of Cash Flows", "R8.htm", 1_000_000, (
             ("us-gaap:PaymentsForProceedsFromProductiveAssets", "Purchase of property, equipment and intangible assets"),
-        ),
-    ),
-    (831001, "0000831001-26-000011"): (  # C
-        "CONSOLIDATED STATEMENT OF CASH FLOWS", "R9.htm", 1_000_000, (
-            (PPE, "Capital expenditures on premises and equipment and capitalized software"),
         ),
     ),
     (316709, "0000316709-26-000009"): (  # SCHW

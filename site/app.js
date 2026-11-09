@@ -116,7 +116,7 @@ function detail(r) {
    const components=v.components||[v];
    return '<details><summary>Filed cash investment lines</summary><ul>'+components.map(part=>{
      const source=part.table_url||part.source;
-     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?(part.source===part.table_url?'SEC rendered statement':'SEC table via Canli Capital'):source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
+     return '<li>'+esc(part.locator)+' · '+esc(part.unit)+' '+reportedAmount.format(part.value)+' · <a target="_blank" rel="noopener noreferrer" href="'+safeUrl(source)+'">'+(part.table_url?(part.table_kind==='bmo_cash_flow_exhibit'?'SEC-filed financial statements':part.source===part.table_url?'SEC rendered statement':'SEC table via Canli Capital'):source.endsWith('.pdf')?'Filed PDF':'SEC Company Facts')+'</a></li>';
    }).join('')+'</ul></details>';
  };
  const componentDetail=v=>{
